@@ -1,0 +1,184 @@
+@import "tailwindcss";
+
+/* Universal Reset & Width Enforcement */
+html,
+body,
+#root {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary: 79 70 229;
+    --surface: 255 255 255;
+    --background: 249 250 251;
+    --text-main: 17 24 39;
+    --text-muted: 107 114 128;
+}
+
+/* Dark Mode Variables */
+.dark {
+    --primary: 99 102 241;
+    --surface: 31 41 55;
+    --background: 17 24 39;
+    --text-main: 243 244 246;
+    --text-muted: 156 163 175;
+}
+
+body {
+    @apply antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark mode body styles */
+.dark body {
+    @apply bg-gray-900 text-gray-100;
+}
+
+/* Fluid Typography */
+html {
+    font-size: 16px;
+}
+
+@media (max-width: 640px) {
+    html {
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 360px) {
+    html {
+        font-size: 13px;
+    }
+}
+
+/* Touch Target Standards */
+button,
+a,
+input,
+select {
+    min-height: 2.75rem;
+    /* ~44px */
+}
+
+/* Remove spin buttons from number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Scrollbar Utility */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Responsive Utilities */
+.responsive-container {
+    @apply w-full max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+.touch-feedback {
+    @apply active:scale-95 transition-transform;
+}
+
+/* Dark Mode Component Overrides */
+.dark .bg-white {
+    background-color: rgb(31, 41, 55) !important;
+}
+
+.dark .bg-gray-50 {
+    background-color: rgb(17, 24, 39) !important;
+}
+
+.dark .text-gray-950,
+.dark .text-gray-900 {
+    color: rgb(243, 244, 246) !important;
+}
+
+.dark .text-gray-400 {
+    color: rgb(156, 163, 175) !important;
+}
+
+.dark .border-gray-100,
+.dark .border-gray-50 {
+    border-color: rgb(55, 65, 81) !important;
+}
+
+.dark .shadow-inner {
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.3) !important;
+}
+
+.dark input,
+.dark select {
+    background-color: rgb(55, 65, 81) !important;
+    color: rgb(243, 244, 246) !important;
+    border-color: rgb(75, 85, 99) !important;
+}
+
+.dark input:focus,
+.dark select:focus {
+    background-color: rgb(31, 41, 55) !important;
+    border-color: rgb(99, 102, 241) !important;
+}
+
+.dark input::placeholder {
+    color: rgb(156, 163, 175) !important;
+}
+
+/* Dark Mode Select Elements */
+.dark select {
+    background-color: rgb(31, 41, 55) !important;
+    color: rgb(243, 244, 246) !important;
+    border-color: rgb(55, 65, 81) !important;
+}
+
+.dark select:focus {
+    border-color: rgb(99, 102, 241) !important;
+}
+
+.dark select option {
+    background-color: rgb(31, 41, 55) !important;
+    color: rgb(243, 244, 246) !important;
+}
+
+/* Dark Mode Cards and Containers */
+.dark .bg-white\/95,
+.dark .bg-gray-50\/80 {
+    background-color: rgba(31, 41, 55, 0.95) !important;
+}
+
+.dark .border-gray-100 {
+    border-color: rgb(55, 65, 81) !important;
+}
+
+.dark .shadow-xl,
+.dark .shadow-2xl,
+.dark .shadow-3xl {
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Dark Mode Text Colors */
+.dark .text-gray-500 {
+    color: rgb(156, 163, 175) !important;
+}
+
+.dark .text-gray-600 {
+    color: rgb(209, 213, 219) !important;
+}
+
+/* Dark mode sticky bar */
+.dark .backdrop-blur-xl {
+    background-color: rgba(17, 24, 39, 0.9) !important;
+}

@@ -1,0 +1,192 @@
+import { supabase } from '../config/db.js';
+
+// Coefficients des matières
+const COEFFICIENTS = {
+    'Analyse 03': 5,
+    'Algèbre 03': 3,
+    'Économie d\'entreprise': 2,
+    'Probabilité et Statistique 01': 4,
+    'Anglais 02': 2,
+    'SFSD': 4,
+    'Architecture 02': 4,
+    'Électronique Fondamentale 02': 4,
+};
+
+const TOTAL_COEF = 28;
+
+// Add or update grade
+export const addGrade = async (req, res) => {
+    try {
+        const { subject, examScore, tdScore } = req.body;
+        const userId = req.user.id;
+        const coefficient = COEFFICIENTS[subject] || 1;
+
+        // Upsert: insert or update if exists
+        const { data: existing } = await supabase
+            .from('grades')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('subject', subject)
+            .single();
+
+        let grade;
+        if (existing) {
+            const { data, error } = await supabase
+                .from('grades')
+                .update({ exam_score: examScore, td_score: tdScore, updated_at: new Date() })
+                .eq('id', existing.id)
+                .select()
+                .single();
+            if (error) throw error;
+            grade = data;
+        } else {
+            const { data, error } = await supabase
+                .from('grades')
+                .insert({ user_id: userId, subject, exam_score: examScore, td_score: tdScore, coefficient })
+                .select()
+                .single();
+            if (error) throw error;
+            grade = data;
+        }
+
+        // Recalculate averages
+        await calculateAverages(userId);
+
+        res.status(201).json(grade);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Batch update grades (Atomic & Race-free)
+export const batchAddGrades = async (req, res) => {
+    try {
+        const { grades } = req.body; // Array of { subject, examScore, tdScore }
+        const userId = req.user.id;
+
+        // Safer approach: Process sequentially to avoid constraint issues if unique index is missing
+        for (const g of grades) {
+            const coefficient = COEFFICIENTS[g.subject] || 1;
+
+            // Check existence
+            const { data: existing } = await supabase
+                .from('grades')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('subject', g.subject)
+                .maybeSingle(); // Safely check
+
+            if (existing) {
+                await supabase
+                    .from('grades')
+                    .update({
+                        exam_score: g.examScore,
+                        td_score: g.tdScore,
+                        updated_at: new Date()
+                    })
+                    .eq('id', existing.id);
+            } else {
+                await supabase
+                    .from('grades')
+                    .insert({
+                        user_id: userId,
+                        subject: g.subject,
+                        exam_score: g.examScore,
+                        td_score: g.tdScore,
+                        coefficient
+                    });
+            }
+        }
+
+        // Recalculate averages ONCE
+        await calculateAverages(userId);
+
+        res.json({ message: 'Batch update successful' });
+    } catch (error) {
+        console.error('Batch Update Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Get my grades
+export const getMyGrades = async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('grades')
+            .select('*')
+            .eq('user_id', req.user.id);
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Calculate and store averages
+const calculateAverages = async (userId) => {
+    const { data: grades } = await supabase
+        .from('grades')
+        .select('*')
+        .eq('user_id', userId);
+
+    if (!grades || grades.length === 0) return;
+
+    let totalSum = 0;
+    let totalCoef = 0;
+
+    // Delete old subject averages
+    await supabase.from('subject_averages').delete().eq('user_id', userId);
+
+    for (const grade of grades) {
+        const subjectAvg = (0.6 * grade.exam_score) + (0.4 * grade.td_score);
+
+        // Insert subject average
+        await supabase.from('subject_averages').insert({
+            user_id: userId,
+            subject: grade.subject,
+            average: subjectAvg
+        });
+
+        totalSum += subjectAvg * grade.coefficient;
+        totalCoef += grade.coefficient;
+    }
+
+    const generalAvg = totalSum / TOTAL_COEF;
+
+    // Upsert general average
+    const { data: existing } = await supabase
+        .from('averages')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+    if (existing) {
+        await supabase.from('averages').update({ general_average: generalAvg, last_calculated: new Date() }).eq('id', existing.id);
+    } else {
+        await supabase.from('averages').insert({ user_id: userId, general_average: generalAvg });
+    }
+};
+
+// Get my averages
+export const getMyAverages = async (req, res) => {
+    try {
+        const { data: general } = await supabase
+            .from('averages')
+            .select('general_average')
+            .eq('user_id', req.user.id)
+            .single();
+
+        const { data: subjects } = await supabase
+            .from('subject_averages')
+            .select('subject, average')
+            .eq('user_id', req.user.id);
+
+        res.json({
+            generalAverage: general?.general_average || 0,
+            subjectAverages: subjects || []
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
