@@ -1,0 +1,10 @@
+{
+    "name": "prototype-root",
+    "private": true,
+    "scripts": {
+        "start": "cd backend && npm start",
+        "install-backend": "cd backend && npm install",
+        "install-frontend": "cd frontend && npm install",
+        "build": "npm run install-backend"
+    }
+}
