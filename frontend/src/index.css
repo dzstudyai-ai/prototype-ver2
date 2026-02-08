@@ -30,7 +30,8 @@ body,
 }
 
 body {
-    @apply antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     line-height: 1.5;
     transition: background-color 0.3s ease, color 0.3s ease;
@@ -38,7 +39,8 @@ body {
 
 /* Dark mode body styles */
 .dark body {
-    @apply bg-gray-900 text-gray-100;
+    background-color: rgb(17 24 39);
+    color: rgb(243 244 246);
 }
 
 /* Fluid Typography */
@@ -86,11 +88,36 @@ input[type="number"]::-webkit-outer-spin-button {
 
 /* Responsive Utilities */
 .responsive-container {
-    @apply w-full max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8;
+    width: 100%;
+    max-width: 90rem;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+    .responsive-container {
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+}
+
+@media (min-width: 1024px) {
+    .responsive-container {
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
 }
 
 .touch-feedback {
-    @apply active:scale-95 transition-transform;
+    transition-property: transform;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.touch-feedback:active {
+    transform: scale(0.95);
 }
 
 /* Dark Mode Component Overrides */
@@ -181,4 +208,13 @@ input[type="number"]::-webkit-outer-spin-button {
 /* Dark mode sticky bar */
 .dark .backdrop-blur-xl {
     background-color: rgba(17, 24, 39, 0.9) !important;
+}
+
+/* Custom Glow Effects */
+.text-shadow-glow-green {
+    text-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+}
+
+.text-shadow-glow-red {
+    text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
 }

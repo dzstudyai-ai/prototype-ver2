@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn, UserPlus, ShieldCheck, Mail, Lock, RefreshCcw, Eye, EyeOff } from 'lucide-react';
+import { LogIn, UserPlus, ShieldCheck, Mail, Lock, RefreshCcw, Eye, EyeOff, Calculator } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useDemo } from '../App';
 
 const Login = () => {
     const { t } = useTranslation();
     const { login } = useAuth();
+    const { setDemoMode } = useDemo();
     const [studentId, setStudentId] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -101,11 +103,22 @@ const Login = () => {
                         </button>
                     </form>
 
-                    <div className="mt-[2.5rem] pt-[2rem] border-t border-gray-50 text-center">
-                        <p className="text-gray-400 font-bold text-[0.875rem] mb-[1.25rem]">{t('noAccount')}</p>
-                        <Link to="/register" className="inline-flex items-center gap-[0.5rem] px-[2rem] py-[1rem] bg-gray-950 text-white rounded-[1.25rem] font-black text-[0.75rem] uppercase tracking-widest hover:bg-black transition-all shadow-xl touch-feedback">
-                            <UserPlus size={18} /> {t('createAccount')}
-                        </Link>
+                    <div className="mt-[2.5rem] pt-[2rem] border-t border-gray-50 text-center flex flex-col items-center gap-[1.25rem]">
+                        <p className="text-gray-400 font-bold text-[0.875rem]">{t('noAccount')}</p>
+                        <div className="flex flex-wrap items-center justify-center gap-[0.75rem]">
+                            <Link to="/register" className="inline-flex items-center gap-[0.5rem] px-[1.5rem] py-[1rem] bg-gray-950 text-white rounded-[1.25rem] font-black text-[0.75rem] uppercase tracking-widest hover:bg-black transition-all shadow-xl touch-feedback">
+                                <UserPlus size={18} /> {t('createAccount')}
+                            </Link>
+                            <button
+                                onClick={() => {
+                                    setDemoMode(true);
+                                    navigate('/');
+                                }}
+                                className="inline-flex items-center gap-[0.5rem] px-[1.5rem] py-[1rem] bg-amber-500 text-white rounded-[1.25rem] font-black text-[0.75rem] uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl touch-feedback"
+                            >
+                                <Calculator size={18} /> {t('tryGuestMode')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -41,8 +41,33 @@ export const AuthProvider = ({ children }) => {
     };
 
     const register = async (studentId, password) => {
-        const { data } = await axios.post('/api/auth/register', { studentId, password });
+        // Migration: check if there are guest grades in localStorage
+        const guestGrades = localStorage.getItem('guest_grades');
+        let initialGrades = null;
+        if (guestGrades) {
+            try {
+                const parsed = JSON.parse(guestGrades);
+                // Convert object { 'Analyse 03': {exam, td}, ... } to array for backend
+                initialGrades = Object.entries(parsed).map(([subject, scores]) => ({
+                    subject,
+                    exam: parseFloat(scores.exam) || 0,
+                    td: parseFloat(scores.td) || 0
+                }));
+            } catch (e) {
+                console.error("Migration parse error", e);
+            }
+        }
+
+        const { data } = await axios.post('/api/auth/register', {
+            studentId,
+            password,
+            initialGrades
+        });
+
         localStorage.setItem('token', data.token);
+        // Clear guest data after successful migration
+        localStorage.removeItem('guest_grades');
+
         setToken(data.token);
         setUser(data);
         axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;

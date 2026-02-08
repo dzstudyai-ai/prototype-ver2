@@ -124,7 +124,7 @@ export const getMyGrades = async (req, res) => {
 };
 
 // Calculate and store averages
-const calculateAverages = async (userId) => {
+export const calculateAverages = async (userId) => {
     const { data: grades } = await supabase
         .from('grades')
         .select('*')
@@ -135,36 +135,47 @@ const calculateAverages = async (userId) => {
     let totalSum = 0;
     let totalCoef = 0;
 
-    // Delete old subject averages
-    await supabase.from('subject_averages').delete().eq('user_id', userId);
+    const updatesSubjectAverages = [];
 
     for (const grade of grades) {
-        const subjectAvg = (0.6 * grade.exam_score) + (0.4 * grade.td_score);
+        let subjectAvg = (0.6 * grade.exam_score) + (0.4 * grade.td_score);
+        // Standardize precision: Round to 2 decimal places BEFORE weighting
+        subjectAvg = Math.round(subjectAvg * 100) / 100;
 
-        // Insert subject average
-        await supabase.from('subject_averages').insert({
+        const coefficient = COEFFICIENTS[grade.subject] || grade.coefficient || 1;
+
+        updatesSubjectAverages.push({
             user_id: userId,
             subject: grade.subject,
             average: subjectAvg
         });
 
-        totalSum += subjectAvg * grade.coefficient;
-        totalCoef += grade.coefficient;
+        totalSum += subjectAvg * coefficient;
+        totalCoef += coefficient; // Use the corrected coefficient
+    }
+
+    // Bulk upsert subject averages
+    if (updatesSubjectAverages.length > 0) {
+        await supabase
+            .from('subject_averages')
+            .upsert(updatesSubjectAverages, { onConflict: 'user_id,subject' });
     }
 
     const generalAvg = totalSum / TOTAL_COEF;
 
     // Upsert general average
-    const { data: existing } = await supabase
+    await supabase
         .from('averages')
-        .select('id')
-        .eq('user_id', userId)
-        .single();
+        .upsert({ user_id: userId, general_average: generalAvg, last_calculated: new Date() }, { onConflict: 'user_id' });
+};
 
-    if (existing) {
-        await supabase.from('averages').update({ general_average: generalAvg, last_calculated: new Date() }).eq('id', existing.id);
-    } else {
-        await supabase.from('averages').insert({ user_id: userId, general_average: generalAvg });
+// Force recalculate my averages
+export const recalcAverages = async (req, res) => {
+    try {
+        await calculateAverages(req.user.id);
+        res.json({ message: 'Averages recalculated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
 };
 

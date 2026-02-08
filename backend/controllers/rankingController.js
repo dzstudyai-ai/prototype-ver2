@@ -64,7 +64,10 @@ export const refreshRankings = async (req, res) => {
             SUBJECTS_CONFIG.forEach(subject => {
                 const grade = userGrades.find(g => g.subject === subject.name);
                 if (grade) {
-                    const avg = (grade.exam_score * 0.6) + (grade.td_score * 0.4);
+                    let avg = (grade.exam_score * 0.6) + (grade.td_score * 0.4);
+                    // Standardize precision: Round to 2 decimal places BEFORE weighting
+                    avg = Math.round(avg * 100) / 100;
+
                     // Add subject average update
                     updatesSubjectAverages.push({
                         user_id: user.id,

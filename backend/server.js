@@ -36,8 +36,18 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+console.log("Starting server...");
+const server = app.listen(PORT, () => {
+    console.log(`✅ Server is officially listening on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+    console.error("❌ SERVER ERROR:", err);
+});
+
+process.on('SIGINT', () => {
+    console.log("STOPPING SERVER (SIGINT)");
+    server.close();
 });
 
 export default app;

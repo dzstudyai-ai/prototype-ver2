@@ -173,6 +173,18 @@ const Dashboard = () => {
     };
 
     const fetchGrades = async () => {
+        if (!user) {
+            // Guest Mode: load from local storage
+            const localData = localStorage.getItem('guest_grades');
+            if (localData) {
+                try {
+                    setGrades(JSON.parse(localData));
+                } catch (e) { console.error("Guest parse error", e); }
+            }
+            setLoading(false);
+            return;
+        }
+
         try {
             const { data } = await axios.get('/api/grades');
             // Merge with existing structure to preserve keys
@@ -196,7 +208,7 @@ const Dashboard = () => {
     };
 
     useEffect(() => {
-        if (user) fetchGrades();
+        fetchGrades();
     }, [user]);
 
     const isMounted = useRef(true);
@@ -257,6 +269,14 @@ const Dashboard = () => {
     };
 
     const performSave = async (gradesData, isUnmount = false) => {
+        if (!user) {
+            // Guest Mode: save only to local storage
+            localStorage.setItem('guest_grades', JSON.stringify(gradesData));
+            if (!isUnmount && isMounted.current) setLastSaved(new Date());
+            dirtyRef.current = false;
+            return;
+        }
+
         if (!isUnmount && isMounted.current) setSaving(true);
         if (!isUnmount && isMounted.current) setError(null);
 
@@ -278,8 +298,7 @@ const Dashboard = () => {
                 // Send single atomic request
                 await axios.post('/api/grades/batch', { grades: batchPayload });
 
-                // Auto-refresh rankings
-                await axios.post('/api/rankings/refresh');
+                // No need to call refresh here, backend does it, and Ranking page forces recalc
 
                 dirtyRef.current = false;
                 if (!isUnmount && isMounted.current) setLastSaved(new Date());
@@ -330,10 +349,11 @@ const Dashboard = () => {
         <div className="w-full responsive-container py-[1.5rem] sm:py-[3rem]">
 
             {/* Header Area */}
-            <div className="bg-gray-950 rounded-[2rem] sm:rounded-[3rem] p-[1.5rem] sm:p-[4rem] mb-[2rem] sm:mb-[4rem] text-white shadow-3xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-[20rem] h-[20rem] bg-indigo-600/20 rounded-full -mr-[10rem] -mt-[10rem] blur-[5rem]"></div>
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-700 dark:from-gray-900 dark:to-gray-950 rounded-[2rem] sm:rounded-[3rem] p-[1.5rem] sm:p-[4rem] mb-[4rem] sm:mb-[6rem] text-white shadow-[0_30px_60px_-15px_rgba(79,70,229,0.3)] dark:shadow-none relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-[20rem] h-[20rem] bg-indigo-400/20 rounded-full -mr-[10rem] -mt-[10rem] blur-[5rem]"></div>
 
                 <div className="flex flex-col lg:flex-row items-center lg:items-start justify-between gap-[2rem] relative z-10">
+                    {/* Left: Title */}
                     <div className="text-center lg:text-left w-full lg:w-auto">
                         <div className="inline-flex items-center gap-[0.5rem] px-[1rem] py-[0.5rem] bg-white/5 rounded-full border border-white/10 mb-[1.5rem]">
                             <Star className="text-yellow-400 fill-yellow-400" size={14} />
@@ -347,25 +367,46 @@ const Dashboard = () => {
                                 <span className="text-white">COEF: {TOTAL_COEF}</span>
                             </p>
                         </div>
+                    </div>
 
-                        <div className="w-full lg:w-auto min-w-0 max-w-[22rem] bg-white/5 backdrop-blur-2xl rounded-[2rem] p-[2rem] border border-white/10 text-center shadow-inner group">
-                            <p className="text-gray-500 text-[0.6rem] sm:text-[0.75rem] font-black uppercase tracking-[0.3em] mb-[0.5rem]">{t('generalAverageShort')}</p>
-                            <p className="text-[4rem] sm:text-[5.5rem] font-black tracking-tighter text-white transition-transform group-hover:scale-105 duration-500">
-                                {calculations.general !== null ? calculations.general.toFixed(2) : '--'}
-                            </p>
-                            <div className="mt-[1.5rem]">
-                                {saving ? (
-                                    <div className="text-indigo-400 font-black text-[0.625rem] uppercase tracking-widest bg-white/5 px-[1rem] py-[0.4rem] rounded-full inline-flex items-center gap-[0.5rem]">
-                                        <RefreshCcw size={12} className="animate-spin" /> {t('syncing')}
-                                    </div>
-                                ) : lastSaved ? (
-                                    <div className="text-green-400 font-black text-[0.625rem] uppercase tracking-widest bg-green-500/10 px-[1rem] py-[0.4rem] rounded-full inline-flex items-center gap-[0.5rem]">
-                                        <CheckCircle2 size={12} /> {t('syncOk')}
-                                    </div>
-                                ) : (
-                                    <div className="text-gray-400 font-black text-[0.625rem] uppercase tracking-widest opacity-60">{t('liveEstimation')}</div>
-                                )}
+                    {/* Guest Mode Banner */}
+                    {!user && (
+                        <div className="w-full lg:w-auto mt-[2rem] lg:mt-0 bg-amber-500/10 border border-amber-500/20 rounded-[2.5rem] p-[1.5rem] sm:p-[2rem] text-center lg:text-left flex flex-col sm:flex-row items-center gap-[1.5rem] animate-in fade-in duration-700">
+                            <div className="w-[3.5rem] h-[3.5rem] bg-amber-500 text-white rounded-[1.25rem] flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/20">
+                                <Calculator size={24} />
                             </div>
+                            <div className="flex-1">
+                                <h3 className="text-amber-500 font-black text-[1rem] sm:text-[1.25rem] mb-[0.25rem] leading-none uppercase tracking-tight">{t('guestMode')}</h3>
+                                <p className="text-amber-200/60 text-[0.75rem] font-bold">{t('guestNotice')}</p>
+                            </div>
+                            <a
+                                href="/register"
+                                className="w-full sm:w-auto px-[1.5rem] py-[1rem] bg-amber-500 text-white font-black text-[0.75rem] uppercase tracking-widest rounded-full hover:bg-amber-600 transition-all touch-feedback shadow-lg shadow-amber-500/20"
+                            >
+                                {t('createAccount')}
+                            </a>
+                        </div>
+                    )}
+
+                    {/* Right: General Average Box */}
+                    <div className="w-full lg:w-[22rem] shrink-0 bg-white/10 backdrop-blur-3xl rounded-[2.5rem] p-[2.5rem] border border-white/20 text-center shadow-2xl relative overflow-hidden group">
+                        <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent opacity-50"></div>
+                        <p className="relative z-10 text-indigo-100 text-[0.6rem] sm:text-[0.75rem] font-black uppercase tracking-[0.4em] mb-[1rem] opacity-80">{t('generalAverageShort')}</p>
+                        <p className="relative z-10 text-[4rem] sm:text-[6rem] font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-indigo-100 transition-transform group-hover:scale-105 duration-700 leading-none">
+                            {calculations.general !== null ? calculations.general.toFixed(2) : '--'}
+                        </p>
+                        <div className="mt-[1.5rem]">
+                            {saving ? (
+                                <div className="text-indigo-400 font-black text-[0.625rem] uppercase tracking-widest bg-white/5 px-[1rem] py-[0.4rem] rounded-full inline-flex items-center gap-[0.5rem]">
+                                    <RefreshCcw size={12} className="animate-spin" /> {t('syncing')}
+                                </div>
+                            ) : lastSaved ? (
+                                <div className="text-green-400 font-black text-[0.625rem] uppercase tracking-widest bg-green-500/10 px-[1rem] py-[0.4rem] rounded-full inline-flex items-center gap-[0.5rem]">
+                                    <CheckCircle2 size={12} /> {t('syncOk')}
+                                </div>
+                            ) : (
+                                <div className="text-gray-400 font-black text-[0.625rem] uppercase tracking-widest opacity-60">{t('liveEstimation')}</div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -480,18 +521,27 @@ const Dashboard = () => {
                                             />
                                         </td>
                                         <td className="px-[2.5rem] py-[2rem]">
-                                            <div className={`inline-flex items-center justify-center min-w-[5.5rem] px-[1rem] py-[0.875rem] rounded-[1.25rem] text-[1.25rem] font-black border-2 transition-all ${avg !== null ? (avg >= 10 ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-600 border-red-100') : 'bg-gray-50 text-gray-200 border-gray-50'
-                                                }`}>
-                                                {avg !== null ? avg.toFixed(2) : '--'}
+                                            <div className="flex flex-col items-center gap-[0.35rem]">
+                                                <span className="text-[0.55rem] font-black text-gray-300 uppercase tracking-widest">{t('averageShort')}</span>
+                                                <div className={`inline-flex items-center justify-center min-w-[5.5rem] px-[0.75rem] py-[0.8rem] rounded-[1.25rem] text-[1.125rem] font-black border-2 transition-all shadow-lg ${avg !== null
+                                                    ? (avg >= 10
+                                                        ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-emerald-400 shadow-emerald-500/20'
+                                                        : 'bg-gradient-to-br from-rose-500 to-red-600 text-white border-rose-400 shadow-rose-500/20')
+                                                    : 'bg-gray-100 text-gray-400 border-gray-200'
+                                                    }`}>
+                                                    {avg !== null ? avg.toFixed(2) : '--'}
+                                                </div>
                                             </div>
                                         </td>
                                         <td className="px-[1rem] py-[2rem]">
                                             {avg !== null ? (
-                                                <span className={`px-[0.75rem] py-[0.25rem] rounded-lg text-[0.625rem] font-black uppercase tracking-widest ${avg >= 10 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                <span className={`px-[1rem] py-[0.5rem] rounded-xl text-[0.625rem] font-black uppercase tracking-widest shadow-sm ${avg >= 10
+                                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                                    : 'bg-rose-100 text-rose-700 border border-rose-200'}`}>
                                                     {avg >= 10 ? t('pass') : t('fail')}
                                                 </span>
                                             ) : (
-                                                <span className="px-[0.75rem] py-[0.25rem] rounded-lg text-[0.625rem] font-black uppercase tracking-widest bg-gray-100 text-gray-400">
+                                                <span className="px-[1rem] py-[0.5rem] rounded-xl text-[0.625rem] font-black uppercase tracking-widest bg-gray-100 text-gray-400 border border-gray-200">
                                                     --
                                                 </span>
                                             )}
@@ -499,6 +549,36 @@ const Dashboard = () => {
                                     </tr>
                                 );
                             })}
+
+                            {/* Summary Row */}
+                            <tr className="bg-gradient-to-r from-indigo-600 to-violet-700 dark:from-gray-900 dark:to-gray-950 text-white">
+                                <td className="px-[2.5rem] py-[2rem] text-left rounded-bl-[2rem]">
+                                    <p className="text-[1.125rem] font-black tracking-tight">{t('generalAverageFull')}</p>
+                                    <p className="text-[0.55rem] font-bold text-indigo-200 uppercase tracking-widest mt-[0.25rem]">{t('academicYear')}</p>
+                                </td>
+                                <td className="px-[1rem] py-[2rem]">
+                                    <span className="font-black text-indigo-200 opacity-60">×{TOTAL_COEF}</span>
+                                </td>
+                                <td colSpan={2} className="px-[1rem] py-[2rem] text-right pr-[2.5rem]">
+                                    <span className={`px-[1.5rem] py-[0.75rem] rounded-2xl text-[0.85rem] font-black uppercase tracking-[0.2em] border-2 shadow-2xl animate-pulse ${calculations.general >= 10
+                                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-400 shadow-emerald-500/40'
+                                        : 'bg-gradient-to-r from-rose-500 to-red-600 text-white border-rose-400 shadow-rose-500/40'}`}>
+                                        {calculations.general !== null ? (calculations.general >= 10 ? t('pass') : t('fail')) : '--'}
+                                    </span>
+                                </td>
+                                <td className="px-[2.5rem] py-[2rem]">
+                                    <div className={`inline-flex items-center justify-center min-w-[8rem] px-[1.25rem] py-[1rem] rounded-[1.5rem] text-[2rem] font-black border-2 transition-all shadow-2xl relative overflow-hidden ${calculations.general !== null
+                                        ? (calculations.general >= 10
+                                            ? 'bg-gradient-to-br from-emerald-500 to-teal-700 text-white border-emerald-400'
+                                            : 'bg-gradient-to-br from-rose-500 to-red-700 text-white border-rose-400')
+                                        : 'bg-gray-800 text-gray-500 border-gray-700'}`}>
+                                        <div className="absolute inset-0 bg-white/10 opacity-20 pointer-events-none"></div>
+                                        {calculations.general !== null ? calculations.general.toFixed(2) : '--'}
+                                    </div>
+                                </td>
+                                <td className="px-[1rem] py-[2rem] rounded-br-[2rem]">
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -514,13 +594,12 @@ const Dashboard = () => {
                                         <h3 className="text-[1.125rem] font-black text-gray-950 tracking-tight leading-[1.2] mb-[0.25rem]">{t(s.name)}</h3>
                                         <span className="text-[0.55rem] font-black uppercase text-indigo-400 tracking-[0.1em] bg-indigo-50/50 px-[0.5rem] py-[0.25rem] rounded-md">{t('coefficient')} {s.coefficient}</span>
                                     </div>
-                                    <div className={`min-w-[4rem] text-center px-[0.75rem] py-[0.5rem] rounded-[1rem] text-[1.25rem] font-black border flex items-center justify-center shadow-sm ${avg !== null ? (avg >= 10 ? 'bg-green-50 text-green-600 border-green-200' : 'bg-red-50 text-red-600 border-red-200') : 'bg-gray-50 text-gray-200 border-gray-100'
-                                        }`}>
-                                        {avg !== null ? avg.toFixed(1) : '--'}
+                                    <div className={`px-[0.75rem] py-[0.25rem] rounded-lg text-[0.625rem] font-black uppercase tracking-widest ${avg !== null ? (avg >= 10 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700') : 'bg-gray-100 text-gray-400'}`}>
+                                        {avg !== null ? (avg >= 10 ? t('pass') : t('fail')) : '--'}
                                     </div>
                                 </div>
 
-                                <div className="flex gap-[0.75rem]">
+                                <div className="flex items-end gap-[0.75rem] mt-[1.5rem]">
                                     <div className="flex-1">
                                         <label className="block text-[0.5rem] font-black text-gray-400 uppercase tracking-widest mb-[0.5rem] ml-[0.5rem]">{t('examFull')}</label>
                                         <input
@@ -545,10 +624,43 @@ const Dashboard = () => {
                                             placeholder="00"
                                         />
                                     </div>
+                                    <div className="flex-1">
+                                        <label className="block text-[0.5rem] font-black text-gray-400 uppercase tracking-widest mb-[0.5rem] ml-[0.5rem] text-center">{t('averageShort')}</label>
+                                        <div className={`w-full h-[3.45rem] rounded-[1rem] flex items-center justify-center text-[1.125rem] font-black border-2 transition-all shadow-lg ${avg !== null
+                                            ? (avg >= 10
+                                                ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-emerald-400 shadow-emerald-500/20'
+                                                : 'bg-gradient-to-br from-rose-500 to-red-600 text-white border-rose-400 shadow-rose-500/20')
+                                            : 'bg-gray-100 text-gray-400 border-gray-200'}`}>
+                                            {avg !== null ? avg.toFixed(2) : '--'}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         );
                     })}
+
+                    {/* Mobile Summary Card */}
+                    <div className={`mt-[1rem] bg-gradient-to-br from-indigo-600 to-violet-800 dark:from-gray-900 dark:to-gray-950 text-white rounded-[2.5rem] p-[2.5rem] shadow-[0_20px_50px_rgba(79,70,229,0.4)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] border-t border-white/10 transition-all duration-700 relative overflow-hidden group`}>
+                        <div className={`absolute inset-0 bg-gradient-to-br opacity-20 ${calculations.general >= 10 ? 'from-emerald-400 to-transparent' : 'from-rose-400 to-transparent'}`}></div>
+                        <div className="flex justify-between items-center mb-[2rem] relative z-10">
+                            <div>
+                                <h3 className="text-[1.5rem] font-black tracking-tight leading-none mb-[0.5rem] text-transparent bg-clip-text bg-gradient-to-r from-white to-indigo-100">{t('generalAverageShort')}</h3>
+                                <p className="text-indigo-200 text-[0.625rem] font-black uppercase tracking-[0.3em]">{t('totalCoefShort')}: {TOTAL_COEF}</p>
+                            </div>
+                            <div className={`px-[1.25rem] py-[0.6rem] rounded-xl text-[0.75rem] font-black uppercase tracking-[0.1em] border-2 shadow-2xl ${calculations.general >= 10
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-400 shadow-emerald-500/40'
+                                : 'bg-gradient-to-r from-rose-500 to-red-600 text-white border-rose-400 shadow-rose-500/40'}`}>
+                                {calculations.general !== null ? (calculations.general >= 10 ? t('pass') : t('fail')) : '--'}
+                            </div>
+                        </div>
+                        <div className={`w-full h-[7rem] rounded-[2rem] flex items-center justify-center text-[4rem] font-black border-4 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] transition-all animate-in zoom-in duration-500 relative z-10 ${calculations.general !== null
+                            ? (calculations.general >= 10
+                                ? 'bg-gradient-to-br from-emerald-600 to-teal-800 text-white border-emerald-400 text-shadow-glow-green'
+                                : 'bg-gradient-to-br from-rose-600 to-red-800 text-white border-rose-400 text-shadow-glow-red')
+                            : 'bg-indigo-900 border-indigo-800 text-indigo-300'}`}>
+                            {calculations.general !== null ? calculations.general.toFixed(2) : '--'}
+                        </div>
+                    </div>
                 </div>
 
                 <footer className="mt-[5rem] pb-[2rem] text-center opacity-40">

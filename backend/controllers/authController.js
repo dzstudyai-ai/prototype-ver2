@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabase } from '../config/db.js';
+import { calculateAverages } from './gradeController.js';
 
 const ADJECTIVES = ['Silent', 'Blue', 'Cosmic', 'Swift', 'Brave', 'Neon', 'Crimson', 'Shadow', 'Solar', 'Arctic'];
 const NOUNS = ['Wolf', 'Eagle', 'Tiger', 'Falcon', 'Lion', 'Phoenix', 'Dragon', 'Bear', 'Shark', 'Raven'];
@@ -28,9 +29,10 @@ const generateToken = (id) => {
 
 // Register
 export const registerUser = async (req, res) => {
-    try {
-        const { studentId, password } = req.body;
+    const { studentId, password, initialGrades } = req.body;
 
+    try {
+        // Student ID validation
         if (!/^\d{12}$/.test(studentId)) {
             return res.status(400).json({ message: 'Le numéro étudiant doit contenir exactement 12 chiffres' });
         }
@@ -40,36 +42,57 @@ export const registerUser = async (req, res) => {
         }
 
         // Check if user exists
-        const { data: existing } = await supabase
+        const { data: userExists } = await supabase
             .from('users')
-            .select('id')
+            .select('student_id')
             .eq('student_id', studentId)
-            .single();
+            .maybeSingle();
 
-        if (existing) {
-            return res.status(400).json({ message: 'Cet étudiant existe déjà' });
+        if (userExists) {
+            return res.status(400).json({ message: 'Utilisateur déjà existant' });
         }
 
         const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(password, salt);
+        const hashedPassword = await bcrypt.hash(password, salt);
         const alias = await generateUniqueAlias();
 
-        const { data: user, error } = await supabase
+        const { data: newUser, error } = await supabase
             .from('users')
-            .insert({ student_id: studentId, password_hash: passwordHash, alias })
+            .insert([{ student_id: studentId, password_hash: hashedPassword, alias }])
             .select()
             .single();
 
         if (error) throw error;
 
+        // Migrate initial grades if provided (Guest Mode migration)
+        if (initialGrades && Array.isArray(initialGrades)) {
+            const gradesToInsert = initialGrades.map(g => ({
+                user_id: newUser.id,
+                subject: g.subject,
+                exam_score: g.exam,
+                td_score: g.td,
+                coefficient: g.coefficient || 1
+            }));
+
+            const { error: gradeError } = await supabase
+                .from('grades')
+                .insert(gradesToInsert);
+
+            if (gradeError) console.error("Migration error:", gradeError);
+        }
+
+        // Calculate averages immediately for the new user
+        await calculateAverages(newUser.id);
+
         res.status(201).json({
-            _id: user.id,
-            studentId: user.student_id,
-            alias: user.alias,
-            token: generateToken(user.id),
+            _id: newUser.id,
+            studentId: newUser.student_id,
+            alias: newUser.alias,
+            token: generateToken(newUser.id),
         });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error("Registration Error:", error);
+        res.status(500).json({ message: error.message || 'Une erreur est survenue lors de l\'inscription' });
     }
 };
 
@@ -109,7 +132,7 @@ export const getUserProfile = async (req, res) => {
     try {
         const { data: user, error } = await supabase
             .from('users')
-            .select('id, student_id, alias, display_mode')
+            .select('id, student_id, alias, display_mode, is_verified')
             .eq('id', req.user.id)
             .single();
 
@@ -120,6 +143,7 @@ export const getUserProfile = async (req, res) => {
             studentId: user.student_id,
             alias: user.alias,
             displayMode: user.display_mode,
+            isVerified: user.is_verified || false,
         });
     } catch (error) {
         res.status(500).json({ message: error.message });

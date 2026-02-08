@@ -11,7 +11,7 @@ export const protect = async (req, res, next) => {
 
             const { data: user, error } = await supabase
                 .from('users')
-                .select('id, student_id, alias')
+                .select('id, student_id, alias, is_verified')
                 .eq('id', decoded.id)
                 .single();
 
@@ -19,12 +19,21 @@ export const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'Non autorisé' });
             }
 
-            req.user = { id: user.id, studentId: user.student_id, alias: user.alias };
+            req.user = { id: user.id, studentId: user.student_id, alias: user.alias, isVerified: user.is_verified };
             next();
         } catch (error) {
             res.status(401).json({ message: 'Non autorisé, token invalide' });
         }
     } else {
         res.status(401).json({ message: 'Non autorisé, pas de token' });
+    }
+};
+
+// Middleware to restrict access to verified users only
+export const verifiedOnly = (req, res, next) => {
+    if (req.user && req.user.isVerified) {
+        next();
+    } else {
+        res.status(403).json({ message: 'Accès refusé. Vérification requise.' });
     }
 };

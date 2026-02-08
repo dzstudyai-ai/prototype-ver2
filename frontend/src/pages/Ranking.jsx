@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Trophy, Shield, CheckCircle, AlertCircle, Save, Settings, ChevronDown, ListFilter, Lock, Star, Sparkles, RefreshCcw, ArrowUp, ArrowDown, Users, RefreshCcw as RefreshCb } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Trophy, Shield, CheckCircle, AlertCircle, Save, Settings, ChevronDown, ListFilter, Lock, Star, Sparkles, RefreshCcw, ArrowUp, ArrowDown, Users, RefreshCcw as RefreshCb, Upload, ScanLine, ShieldCheck, Camera } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '../components/LoadingSpinner';
+import LiveScanner from '../components/LiveScanner';
 
 const SUBJECTS = [
     { name: 'general', i18nKey: 'Moyenne Générale' },
@@ -33,6 +34,14 @@ const Ranking = () => {
     const [message, setMessage] = useState('');
     const [filterMode, setFilterMode] = useState('all'); // all, top80, bottom20
 
+    // Verification State
+    const [isVerified, setIsVerified] = useState(null); // null = loading, false = not, true = verified
+    const [verifying, setVerifying] = useState(false);
+    const [verifyError, setVerifyError] = useState('');
+    const [manualId, setManualId] = useState('');
+    const [showScanner, setShowScanner] = useState(false);
+    const [captureComplete, setCaptureComplete] = useState(false);
+
     const scrollToMyRank = () => {
         const element = document.getElementById('my-rank-row');
         if (element) {
@@ -47,6 +56,7 @@ const Ranking = () => {
             try {
                 const { data } = await axios.get('/api/auth/me');
                 setMyAlias(data.alias);
+                setIsVerified(data.isVerified || false);
                 if (data.displayMode) {
                     setDisplayMode(data.displayMode);
                     setIsConfigured(true);
@@ -56,6 +66,7 @@ const Ranking = () => {
                 }
             } catch (error) {
                 console.error("Error fetching profile:", error);
+                setIsVerified(false);
             } finally {
                 setProfileLoading(false);
             }
@@ -79,33 +90,19 @@ const Ranking = () => {
         }
     };
 
-    const [isRefreshed, setIsRefreshed] = useState(false);
-
-    // 1. Initial Backend Refresh on Mount
+    // 2. Fetch Ranking Data
     useEffect(() => {
         if (isConfigured) {
-            const performRefresh = async () => {
+            const initRanking = async () => {
+                // Force recalculation for the current user to ensure fresh data
                 try {
-                    // Add a significant delay (2000ms) to ensure previous page (Dashboard) 
-                    // has fully finished saving/syncing before we calculate rankings.
-                    await Promise.all([
-                        axios.post('/api/rankings/refresh'),
-                        new Promise(resolve => setTimeout(resolve, 2000))
-                    ]);
+                    await axios.post('/api/grades/recalc');
                 } catch (e) {
-                    console.error("Auto-refresh error:", e);
-                } finally {
-                    setIsRefreshed(true);
+                    console.error("Recalc failed", e);
                 }
+                fetchRanking();
             };
-            performRefresh();
-        }
-    }, [isConfigured]);
-
-    // 2. Fetch Ranking Data (waits for Refresh)
-    useEffect(() => {
-        if (isConfigured && isRefreshed) {
-            fetchRanking();
+            initRanking();
 
             const interval = setInterval(() => {
                 fetchRanking(true);
@@ -113,7 +110,7 @@ const Ranking = () => {
 
             return () => clearInterval(interval);
         }
-    }, [isConfigured, isRefreshed, selectedSubject]);
+    }, [isConfigured, selectedSubject]);
 
     const handleRefresh = async () => {
         setLoading(true);
@@ -147,9 +144,6 @@ const Ranking = () => {
         }
         return rankingData;
     }, [rankingData, filterMode]);
-
-    if (loading && !isRefreshed) return <LoadingSpinner fullScreen message={t('syncingLong')} />;
-    if (loading) return <LoadingSpinner fullScreen />;
 
     const checkAliasUniqueness = async (alias) => {
         try {
@@ -190,13 +184,69 @@ const Ranking = () => {
         }
     };
 
-    if (profileLoading) return <LoadingSpinner />;
+    const handleCapture = async (idImageBlob, qrData = null, nameImageBlob = null, qrImageBlob = null) => {
+        console.log("=== HANDLE CAPTURE CALLED ===");
+        console.log("idImageBlob:", idImageBlob ? `BLOB (${idImageBlob.size} bytes)` : "null");
+        console.log("qrData:", qrData);
+        console.log("nameImageBlob:", nameImageBlob ? `BLOB (${nameImageBlob.size} bytes)` : "null");
+        console.log("qrImageBlob:", qrImageBlob ? `BLOB (${qrImageBlob.size} bytes)` : "null");
+        console.log("manualId:", manualId);
+
+        if (verifying || isVerified) {
+            console.log("Already verifying or verified, skipping...");
+            return;
+        }
+
+        if (!manualId) {
+            setVerifyError(t('verifyFieldsRequired'));
+            return;
+        }
+
+        setVerifying(true);
+        setVerifyError('');
+        setShowScanner(false);
+        setCaptureComplete(true);
+
+        const formData = new FormData();
+        formData.append('manualStudentId', manualId);
+        formData.append('studentCard', idImageBlob, 'student_card.jpg');
+        if (nameImageBlob) formData.append('nameCard', nameImageBlob, 'name_part.jpg');
+        if (qrImageBlob) formData.append('qrCard', qrImageBlob, 'qr_part.jpg');
+        if (qrData) formData.append('qrData', qrData);
+
+        console.log("FormData prepared, sending to /api/auth/verify...");
+
+        try {
+            const response = await axios.post('/api/auth/verify', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            console.log("✓ Verification SUCCESS:", response.data);
+            setIsVerified(true);
+            setSettingsOpen(true);
+        } catch (err) {
+            console.error("✗ Verification FAILED:", err);
+            console.error("Error response:", err.response?.data);
+            setVerifyError(err.response?.data?.message || t('verifyError'));
+            setCaptureComplete(false);
+        } finally {
+            setVerifying(false);
+        }
+    };
+
+    if (profileLoading || isVerified === null) return <LoadingSpinner />;
 
     const selectedSubjectObj = SUBJECTS.find(s => s.name === selectedSubject);
     const selectedSubjectName = selectedSubjectObj ? t(selectedSubjectObj.i18nKey) : t('Moyenne Générale');
 
     return (
         <div className="w-full responsive-container py-[2rem] sm:py-[4rem]">
+            {showScanner && (
+                <LiveScanner
+                    onCapture={handleCapture}
+                    onClose={() => setShowScanner(false)}
+                    manualId={manualId}
+                />
+            )}
 
             {/* Header: Centered & Fluid */}
             <div className="text-center mb-[3.5rem] sm:mb-[5rem] px-4">
@@ -219,7 +269,67 @@ const Ranking = () => {
                 </p>
             </div>
 
-            {!isConfigured && (
+            {/* VERIFICATION GATE */}
+            {!isVerified && (
+                <div className="bg-white shadow-3xl rounded-[2.5rem] p-[2rem] sm:p-[4rem] mb-[3.5rem] border-[0.25rem] border-amber-500 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-[15rem] h-[15rem] bg-amber-50 rounded-full -mr-[7rem] -mt-[7rem] blur-[5rem]"></div>
+                    <div className="flex flex-col items-center text-center mb-[3rem] relative z-10">
+                        <div className="p-[1.5rem] bg-amber-100 text-amber-600 rounded-[1.5rem] mb-[1.5rem]">
+                            <ShieldCheck size={36} />
+                        </div>
+                        <h2 className="text-[1.75rem] sm:text-[2.5rem] font-black text-gray-950 mb-[1rem]">{t('verificationRequired')}</h2>
+                        <p className="text-gray-500 font-bold text-[0.875rem] sm:text-[1rem] max-w-[30rem]">
+                            {t('verificationInstruction')}
+                        </p>
+                    </div>
+
+                    {verifyError && (
+                        <div className="bg-red-50 border-2 border-red-100 text-red-600 p-[1rem] rounded-[1.25rem] mb-[2rem] text-[0.875rem] font-black flex items-center gap-[0.75rem] animate-in fade-in">
+                            <AlertCircle size={18} /> {verifyError}
+                        </div>
+                    )}
+
+                    <div className="space-y-[2rem] max-w-[35rem] mx-auto relative z-10">
+                        <div>
+                            <label className="block text-[0.625rem] font-black text-amber-600 uppercase tracking-[0.3em] mb-[1rem]">{t('enterStudentId')}</label>
+                            <input
+                                type="text"
+                                className="w-full bg-gray-50 border-2 border-transparent rounded-[1.5rem] py-[1.25rem] px-[1.5rem] text-[1.125rem] font-black text-gray-900 focus:border-amber-500 focus:bg-white outline-none transition-all shadow-inner"
+                                value={manualId}
+                                onChange={(e) => setManualId(e.target.value)}
+                                placeholder="202412345678"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-[0.625rem] font-black text-amber-600 uppercase tracking-[0.3em] mb-[1rem]">{t('uploadCardPhoto')}</label>
+
+                            <button
+                                type="button"
+                                onClick={() => setShowScanner(true)}
+                                disabled={verifying}
+                                className={`w-full flex items-center justify-center gap-[1rem] py-[1.5rem] px-[1.5rem] rounded-[1.5rem] border-2 border-dashed font-black transition-all touch-feedback ${captureComplete ? 'border-green-300 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100'
+                                    }`}
+                            >
+                                {captureComplete ? <CheckCircle size={24} /> : <Camera size={24} />}
+                                {captureComplete ? "Capture terminée" : "Ouvrir le Scanner Live"}
+                            </button>
+                            <p className="mt-4 text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                Scannez votre carte en direct pour sécuriser l'accès.
+                            </p>
+                        </div>
+
+                        {verifying && (
+                            <div className="flex flex-col items-center gap-4 py-4 animate-pulse">
+                                <ScanLine size={32} className="text-amber-500" />
+                                <span className="text-amber-600 font-black text-xs uppercase tracking-widest">{t('scanning')}...</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {isVerified && !isConfigured && (
                 <div className="bg-white shadow-3xl rounded-[2.5rem] p-[2rem] sm:p-[4rem] mb-[3.5rem] border-[0.25rem] border-indigo-600 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-[15rem] h-[15rem] bg-indigo-50 rounded-full -mr-[7rem] -mt-[7rem] blur-[5rem]"></div>
                     <div className="flex flex-col items-center text-center mb-[3rem]">
@@ -284,9 +394,8 @@ const Ranking = () => {
                 </div>
             )}
 
-            {isConfigured && (
+            {isVerified && isConfigured && (
                 <>
-                    {/* Action Bar */}
                     {/* Action Bar */}
                     <div className="flex flex-col xl:flex-row gap-[1rem] mb-[2rem] sm:mb-[3rem] sticky top-[5.5rem] z-40">
                         {/* Subject Selector */}
