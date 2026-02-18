@@ -1,0 +1,185 @@
+import fs from 'fs';
+
+const csvData = `Matricule;Nom   ;Prénom;Note;Absent;Absence Justifiée;Observation;Section;Groupe
+ 232431545108;ABDENNOUZ/عبد النوز;KHADIDJA/خديجة;9,5;;;;;
+ 242431414415;ABDI/عبدي;KARIMA/كريمة;10,5;;;;;
+ 242431476307;ABOUDJABEL/ابو جبل;BISSENE/بيسان;5,5;;;;;
+ 242434020006;AGGOUN/عقون;CHARAF EDDINE/شراف الدين;"10;25";;;;;
+ 242431069010;AIT HOCINE/آيت حسين;MILISSA/ميليسا;11,75;;;;;
+ 242431689513;AIT MAHAMMED/آيت محامد;SALIM/سليم;;;;;;
+ 242431114405;AIT SALEM/أيت سالم;NORA/نورة;;;;;;
+ 242434018611;AKBOUDJ/اقبوج;ANIS MOHAMMED NASSIM/انيس محمد نسيم;10,5;;;;;
+ 242432150612;AKLI/اكلي;MEROUANE/مروان;18,75;;;;;
+ 242431138115;ALLACHE/علاش;SAMY/سامي;9;;;;;
+ 242432147611;ALLAG/علاق;ABDELWADOUD/عبد الودود;2,75;;;;;
+ 242439006404;ALLALI/علالي;SIDALI ABDERAOUFE/سيد علي عبد الرؤوف;12;;;;;
+ 242431564710;ALLALOU/علالو;LILIA ASSIA/ليليا آسيا;7,75;;;;;
+ 242431447710;ARAR/عرعار;BOUCHRA MANEL/بشرى منال;12,25;;;;;
+ 242435455304;ATTOUI/عطوي;AMINE/أمين;10,25;;;;;
+ 242431063211;AYADI/عيادي;LIZA/ليزا;14,75;;;;;
+ 232335111213;AZIL/عزيل;SELSABILE/سلسبيل;8;;;;;
+ 242431441705;BAGHDADI/بغدادي;ABDERRAHIM WAEL/عبدالرحيم وائل;15,5;;;;;
+ 242431447806;BAHRI/بحري;AFAF/عفاف;7,25;;;;;
+ 232431545419;BAKIRI/باكيري;SOUNDOUS/سندس;7,25;;;;;
+ 242437256403;BAROUDI/برودي;LAID/العيد;13,75;;;;;
+ 242431483704;BEDAD/بداد;INES/ايناس;20;;;;;
+ 242437543802;BELABBES/بلعباس;ABDERRAHMANE AYOUB/عبد الرحمن أيوب;15;;;;;
+ 242436197902;BELANIGUE/بلعنيق;DHIAA EDDINE ISLAM/ضياء الدين إسلام;12,5;;;;;
+ 242433212814;BELGACEM/بلقاسم;ABDERREZAK/عبد الرزاق;8,75;;;;;
+ 242431486918;BELKHEDIM/بلخديم;HEYTHEM ABDERAOUF/هيثم عبد الرؤوف;7;;;;;
+ 242432181109;BENACHOUR/بن عاشور;MOHAMED FOUAD/محمد فؤاد;12,75;;;;;
+ 242431211310;BENAKMOUM/بن أقموم;RAFIK/رفيق;10,5;;;;;
+ 242439492503;BENBADA/بن بادة;ABD EL AZIZ ZAKARIA/عبد العزيز زكرياء;8,75;;;;;
+ 242431271418;BENDAHMANE/بن دحمان;REHAM/رهام;10,5;;;;;
+ 242432443607;BENDILMI/بن ديلمي;MELISSA/ميليسا;7,5;;;;;
+ 242431621011;BENKAIDALI/بن قايد علي;ADEL/عادل;11,75;;;;;
+ 242432231017;BEN KREIRA/بن كريرة;NOUR EL IMANE/نور الإيمان;9,5;;;;;
+ 242431360714;BENLOULOU/بن لولو;NADJAH CIRINE/نجاح سرين;15,5;;;;;
+ 242432150318;BENNACER/بن ناصر;SAMI FARES/سامي فارس;14;;;;;
+ 242431666515;BERRAF/براف;NOHA/نهى;11,5;;;;;
+ 242437439404;BOUAASRIA/بوعسرية;ANISSA/أنيسة;10,5;;;;;
+ 242431689520;BOUABDALLAH/بو عبد الله;ABDERRAHMANE/عبد الرحمان;6,75;;;;;
+ 242431285517;BOUANIK/بوعنيق;SERADJ EDDINE/سراج الدين;9,75;;;;;
+ 232435514519;BOUCHAREB/بوشارب;DOUAA/دعاء;14,75;;;;;
+ 242431128907;BOUDEFOUA/بودفوع;TINHINANE/تينهينان;12,25;;;;;
+ 222436421806;BOUDEHANE/بودهان;ROUDAINA/رودينة;12,25;;;;;
+ 242431122602;BOUDRIES/بودرياس;IKRAM/إكرام;8,5;;;;;
+ 242436015307;BOUGUERBA/بوقربة;SIRRADJ MOUNIR/سراج منير;6,75;;;;;
+ 242438006419;BOUGUERRA/بوقرة;YOUNES SADEK/يونس صادق;9,5;;;;;
+ 242431688411;BOUHABILA/بوحبيلة;MOHAMED MEBAREK/محمد مبارك;5,25;;;;;
+ 242436374906;BOUHAFS/بوحفص;ABDENNOUR/عبد النور;9,75;;;;;
+ 242431039111;BOUHEROUA/بوهراوة;IMANE/إيمان;16,75;;;;;
+ 232434564517;BOUKHEMIS/بوخميس;MANAL/منال;10,75;;;;;
+ 242435031908;BOUKHENNOUFA/بوخنوفة;ASSIL ABDERREZAK/أصيل عبد الرزاق;20;;;;;
+ 242431757009;BOULARAS/بولعراس;ABDERRHMANE/عبد الرحمان;7;;;;;
+ 242435382908;BOULENOUAR/بولنوار;HADJER/هاجر;8,5;;;;;
+ 242434244008;BOUMAZA/بومعزة;MOUHAMED EL AMINE/محمد الأمين;10,25;;;;;
+ 242435379612;BOUMEZBER/بومزبر;HOCINE/حسين;9,25;;;;;
+ 232331624111;BOUNAR/بونار;WASSIM/وسيم;5;;;;;
+ 232438436004;BOUSSAD/بوسعد;AYMEN MOHAMED AMINE/ايمن محمد امين;8,5;;;;;
+ 242431454213;BOUZEGZI/بوزقزي;ZEID/زيد;8,75;;;;;
+ 242432236910;BRADAI/برادعي;CHOUAIB/شعيب;5,75;;;;;
+ 242432573917;CHAOUCHI/شاوشي;MOHAMED ABDELBASSET/محمد عبد الباسط;7,25;;;;;
+ 242435455601;CHOUDER/شودار;Mohamed nacer ellah/محمد نصر الله;9,25;;;;;
+ 242431238005;CHOUIA/شوية;ANES/أنس;2;;;;;
+ 242431243410;DIF/ضيف;FATMA ZOHRA/فاطمة الزهرة;12,5;;;;;
+ 242431209901;DIGUER/ديقر;MOHAMED WASSIM/محمد وسيم;9;;;;;
+ 242435399712;DJABER/جابر;Alae dine/علاء الدين;16,25;;;;;
+ 242433185602;DJELLOUT/جلوط;LIZA/ليزا;8;;;;;
+ 242432582318;DOUKANI/دكاني;NOUR EL HOUDA/نور الهدى;18,25;;;;;
+ 232432132415;ELCADI/القاضي;MOHAMMED/محمد;9,5;;;;;
+ 242432031104;EL MOKRETAR/المكرطار;AKRAM/أكرم;10,75;;;;;
+ 242431209206;FEKIRI/فقيري;ADLENE/عدلان;14;;;;;
+ 242431621017;FERHAT/فرحات;ABDELDJALIL NASSIM/عبد الجليل نسيم;6,25;;;;;
+ 242436136204;FRIDJA/فريجة;YOUNES/يونس;3,75;;;;;
+ 242439491402;GABANI/قباني;FATNA GALLIL/فاطنة قليل;8,75;;;;;
+ 242436028217;GANOUCHE/قنوش;SIRRADJ ABDERRAHMANE/سراج عبد الرحمان;0;;;;;
+ 242435558904;GUERAOUI/قراوي;MOHAMMED EL MOUDJTABA/محمد المجتبى;8,5;;;;;
+ 242433011410;HABROUCH/حبروش;SAADI/سعدي;14,5;;;;;
+ 242436015401;HADDED/حداد;ABDELWADOUD/عبد الودود;11,5;;;;;
+ 242438479406;HAKKOUM/حكوم;MERIEM ALAA/مريم آلاء;5,5;;;;;
+ 242431723513;HAMED ABDELOUAHAB/حامد عبد الوهاب;MEHDI/مهدي;14,75;;;;;
+ 242434398614;HAMMADI/حمادي;NIBEL/نبال;19,75;;;;;
+ 242433061720;HASSANI/حساني;INES/ايناس;10;;;;;
+ 242431461904;HESSAINE/حساين;ABDELHAK/عبد الحق;13,25;;;;;
+ 242431068911;IADADEN/إيدادن;RAYANE/ريان;;;;;;
+ 242431597805;KADRI/قادري;AYOUB/أيوب;15,25;;;;;
+ 242437139207;KADRI/قادري;YASSAMINE/ياسمين;15,25;;;;;
+ 242432485803;KAINOU/قينو;AYA/آية;9,25;;;;;
+ 242431211102;KANOUNE/كانون;OUSSAMA/أسامة;8,5;;;;;
+ 242431680416;KEBBANE/كبان;OUAEL/وائل;10,25;;;;;
+ 242431622205;KEBOUR/كبور;YANIS/يانيس;16;;;;;
+ 242431621911;KEHILI/كحيلي;NADHIR/نذير;9,75;;;;;
+ 242435579812;KHAIAT/خياط;HADDA DOUAA/حدة دعاء;13;;;;;
+ 232433250512;KHELIL/خليل;IKRAM/اكرام;12;;;;;
+ 242431461706;KHOUDAS/خوداس;AMINA/أمينة;12,25;;;;;
+ 242439558901;KHOUDRANE/خدران;HIBT ARRAHMANE/هبة الرحمان;11,75;;;;;
+ 242431617802;KLALIB/قلاليب;MOHAMED AMINE/محمد أمين;9,25;;;;;
+ 242431047211;KOUDECHE/قوداش;AHLEM/احلام;8,5;;;;;
+ 242436241818;LACHAL/لشعل;MOUADH/معاذ;11,75;;;;;
+ 242431462201;LAHOUEL/لحول;WAIL/وائل;8,25;;;;;
+ 242431689720;LAMINI/لميني;WASSIM/وسيم;15,5;;;;;
+ 242432466211;LAMMAR/لمار;MOHAMED AISSAM/محمد عصام;8,75;;;;;
+ 242431714606;LARABI/لعرابي;MOHAMED/محمد;9,75;;;;;
+ 242431453410;LEMDANI/لمداني;MOHAMED HOUSSEM/محمد حسام;11,25;;;;;
+ 242431142903;LOUNNACI/لوناسي;YASMINE/ياسمين;9,25;;;;;
+ 232336274915;MAAMRIA/معامرية;ABDERAHMENE/عبد الرحمان;4,25;;;;;
+ 242439048618;MAAMRIA/معامرية;MATASSEM BILLAH/معتصم بالله;9,75;;;;;
+ 232333054905;MACHOUCHE/مشوش;FAYEZ/فايز;11,5;;;;;
+ 242432049603;MAHROUG/محروق;ALAE/ألاء;10,5;;;;;
+ 242439043710;MECHETER/مشتير;HAROUNE/هارون;12,75;;;;;
+ 242431689615;MEDKOUR/مذكور;MOHAMED RAID/محمد رائد;11,5;;;;;
+ 242431398703;MEHIDI/مهيدي;TAREK/طارق;13,5;;;;;
+ 242431621219;MEKBAL/مقبال;IMAD EDDINE/عماد الدين;12,25;;;;;
+ 242432487106;MERAH/مراح;RAGHD/رغد;6,75;;;;;
+ 242431414605;MESSAHLI/مساحلي;HIBA MANEL/هبة منال;8;;;;;
+ 242436176802;MESSIKH/مسيخ;MOHAMMED YAHIA/محمد يحي;15;;;;;
+ 242432150608;MOKRANE/مقران;MOHAMED YACINE/محمد ياسين;10;;;;;
+ 232431858719;MOKRANI/مقراني;ZAKARIA/زكرياء;8,25;;;;;
+ 242433153202;MOSTEFAI/مصطفاي;MALAK/ملاك;10,5;;;;;
+ 242431271804;MOUHEB/موهاب;MAYA/مايا;16,75;;;;;
+ 242432557305;MTAMAR/مطامر;IMED EDDINE/عماد الدين;9,25;;;;;
+ 242432150717;NAMANE/نعمان;HAITHEM/هيثم;14;;;;;
+ 242431211201;OSMALI/عصمالي;BASSEM/باسم;2,75;;;;;
+ 242431423701;OUANANI/وعناني;AHMED/أحمد;6,5;;;;;
+ 242431620320;RABIA/رابية;AIMEN ABDELAZIZ/أيمن عبد العزيز;7,5;;;;;
+ 242438572814;RAHMANI/رحماني;SARA/سارة;11,75;;;;;
+ 242431475705;RAKI/ركي;MERIEM/مريم;14,75;;;;;
+ 242431035804;REDOUANI/رضواني;CICILIA/سيسيليا;13;;;;;
+ 242431598508;REHALI/رحالى;MOHAMED ABDELHAK/محمد عبد الحق;13,5;;;;;
+ 242432042406;ROHNI/رحني;IKHLASS/اخلاص;9;;;;;
+ 242437589418;SAIBI/سايبي;MOHAMED ABDELILAH/محمد عبد الإله;12;;;;;
+ 232435214402;SAIDI/سعيدي;MANEL/منال;5,75;;;;;
+ 242432225016;SEGHIER/صغير;HADJER/هاجر;7,25;;;;;
+ 242432562607;SELIM/سليم;IBTISSEM/ابتسام;13;;;;;
+ 242431222914;SENAD/سناد;ZEHIRA/زهيرة;9,5;;;;;
+ 242435570418;SID/صيد;ABDELILAH/عبدالإله;2,75;;;;;
+ 242431281912;SLIMANI/سليماني;ALAA EDDINE/علاء الدين;9,5;;;;;
+ 242431390901;TADJINE/طاجين;MOHAMED/محمد;7,25;;;;;
+ 242435426902;TAKELAIT/تقلعيت;AMANI/أماني;7;;;;;
+ 242433372103;TAKOUK/طكوك;ABLA/عبلة;10,5;;;;;
+ 242434244806;TALEHA/طلحة;FADY ABDESSAMED/فادي عبد الصمد;;;;;;
+ 242431485807;TAYEB/طيب;NADINE/نادين;14,5;;;;;
+ 242432438101;TETBIRT/تتبيرت;ABDELLAH/عبد الله;10,25;;;;;
+ 242437233412;TOUATI/تواتي;ALAAEDDINE/علاء الدين;7,75;;;;;
+ 242431142801;TOUZI/توزي;GHILES/غيلاس;11,25;;;;;
+ 242433293509;YAHI/ياحي;MOUAD/معاد;8;;;;;
+ 242435558708;ZEGHDOUD/زغدود;RAFIK/رفيق;10,25;;;;;`;
+
+const rows = csvData.split('\n').filter(r => r.trim() !== '');
+const values = [];
+
+rows.forEach((row, index) => {
+    if (index === 0) return; // Skip header
+    const cols = row.split(';');
+    const matricule = cols[0].trim();
+    let noteStr = cols[3].replace(/"/g, '').trim();
+
+    // Handle "10;25" error -> 10.25
+    if (noteStr.includes(';')) {
+        noteStr = noteStr.replace(';', '.');
+    } else {
+        noteStr = noteStr.replace(',', '.');
+    }
+
+    if (!matricule) return;
+
+    if (noteStr) {
+        values.push(`('${matricule}', 'Algèbre 03', ${noteStr})`);
+    } else {
+        console.log(`Skipping ${matricule} - No Grade`);
+    }
+});
+
+const sql = `
+-- Drop existing table if needed (safety check, or just delete rows)
+-- DELETE FROM official_grades WHERE subject = 'Algèbre 03';
+
+INSERT INTO official_grades (matricule, subject, final_note)
+VALUES
+${values.join(',\n')}
+ON CONFLICT (matricule, subject) DO UPDATE SET final_note = EXCLUDED.final_note;
+`;
+
+fs.writeFileSync('manual_insert_algebra.sql', sql);
+console.log('SQL Generated!');

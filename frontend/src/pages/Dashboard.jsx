@@ -1,20 +1,22 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Calculator, Save, Star, CheckCircle2, RefreshCcw, FileDown, Target, Check } from 'lucide-react';
+import { Calculator, Save, Star, CheckCircle2, RefreshCcw, FileDown, Target, Check, Shield } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import axios from 'axios';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '../components/LoadingSpinner';
+import GradeVerification from '../components/GradeVerification';
+import CodeOverlay from '../components/CodeOverlay';
 
 const SUBJECTS = [
-    { name: 'Analyse 03', coefficient: 5 },
-    { name: 'Algèbre 03', coefficient: 3 },
-    { name: 'Économie d\'entreprise', coefficient: 2 },
-    { name: 'Probabilité et Statistique 01', coefficient: 4 },
-    { name: 'Anglais 02', coefficient: 2 },
-    { name: 'SFSD', coefficient: 4 },
-    { name: 'Architecture 02', coefficient: 4 },
-    { name: 'Électronique Fondamentale 02', coefficient: 4 },
+    { name: 'Analyse 03', coefficient: 5, hasTD: true },
+    { name: 'Algèbre 03', coefficient: 3, hasTD: true },
+    { name: 'Économie d\'entreprise', coefficient: 2, hasTD: true },
+    { name: 'Probabilité et Statistique 01', coefficient: 4, hasTD: true },
+    { name: 'Anglais 02', coefficient: 2, hasTD: false },
+    { name: 'SFSD', coefficient: 4, hasTD: true },
+    { name: 'Architecture 02', coefficient: 4, hasTD: true },
+    { name: 'Électronique Fondamentale 02', coefficient: 4, hasTD: true },
 ];
 
 const TOTAL_COEF = 28;
@@ -24,7 +26,7 @@ const Dashboard = () => {
     const { user } = useAuth();
     const [grades, setGrades] = useState(
         SUBJECTS.reduce((acc, s) => {
-            acc[s.name] = { exam: '', td: '' };
+            acc[s.name] = { exam: '', td: '', isExamVerified: null, isTdVerified: null };
             return acc;
         }, {})
     );
@@ -33,6 +35,26 @@ const Dashboard = () => {
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState(null);
     const [error, setError] = useState(null);
+    const [showVerification, setShowVerification] = useState(false);
+    const [overlayCode, setOverlayCode] = useState(null);
+    const [overlayTimeLeft, setOverlayTimeLeft] = useState(0);
+
+    // Countdown for overlay
+    useEffect(() => {
+        if (!overlayCode || overlayTimeLeft <= 0) return;
+        const timer = setInterval(() => {
+            setOverlayTimeLeft(prev => {
+                if (prev <= 1) { clearInterval(timer); setOverlayCode(null); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [overlayCode, overlayTimeLeft]);
+
+    const handleCodeGenerated = (code, ttl) => {
+        setOverlayCode(code);
+        setOverlayTimeLeft(ttl);
+    };
 
     const calculations = useMemo(() => {
         const subjectAverages = {};
@@ -40,13 +62,21 @@ const Dashboard = () => {
         let subjectsEntered = 0;
 
         SUBJECTS.forEach(s => {
+            const hasTD = s.hasTD !== false;
             const exam = parseFloat(grades[s.name].exam);
             const td = parseFloat(grades[s.name].td);
 
-            if (!isNaN(exam) || !isNaN(td)) {
+            if (!isNaN(exam) || (hasTD && !isNaN(td))) {
                 const eVal = isNaN(exam) ? 0 : exam;
                 const tVal = isNaN(td) ? 0 : td;
-                const avg = (eVal * 0.6) + (tVal * 0.4);
+
+                let avg;
+                if (!hasTD) {
+                    avg = eVal;
+                } else {
+                    avg = (eVal * 0.6) + (tVal * 0.4);
+                }
+
                 subjectAverages[s.name] = avg;
                 totalWeightedSum += avg * s.coefficient;
                 subjectsEntered++;
@@ -186,7 +216,7 @@ const Dashboard = () => {
         }
 
         try {
-            const { data } = await axios.get('/api/grades');
+            const { data } = await api.get('/api/grades');
             // Merge with existing structure to preserve keys
             setGrades(prev => {
                 const next = { ...prev };
@@ -194,7 +224,9 @@ const Dashboard = () => {
                     if (next[g.subject]) {
                         next[g.subject] = {
                             exam: g.exam_score.toString(),
-                            td: g.td_score.toString()
+                            td: g.td_score !== null ? g.td_score.toString() : '',
+                            isExamVerified: g.is_exam_verified,
+                            isTdVerified: g.is_td_verified
                         };
                     }
                 });
@@ -295,13 +327,49 @@ const Dashboard = () => {
             }).filter(item => item !== null);
 
             if (batchPayload.length > 0) {
-                // Send single atomic request
-                await axios.post('/api/grades/batch', { grades: batchPayload });
-
-                // No need to call refresh here, backend does it, and Ranking page forces recalc
+                const { data: savedGrades } = await api.post('/api/grades/batch', { grades: batchPayload });
 
                 dirtyRef.current = false;
-                if (!isUnmount && isMounted.current) setLastSaved(new Date());
+                if (!isUnmount && isMounted.current) {
+                    setLastSaved(new Date());
+                    // Only update verification status, NOT grade values
+                    // This prevents overwriting what the user is currently typing
+                    if (savedGrades && Array.isArray(savedGrades)) {
+                        setGrades(prev => {
+                            const next = { ...prev };
+                            savedGrades.forEach(g => {
+                                if (next[g.subject]) {
+                                    next[g.subject] = {
+                                        ...next[g.subject], // Keep current exam/td values
+                                        isExamVerified: g.is_exam_verified ?? next[g.subject].isExamVerified,
+                                        isTdVerified: g.is_td_verified ?? next[g.subject].isTdVerified
+                                    };
+                                }
+                            });
+                            return next;
+                        });
+                    } else {
+                        // Fallback: fetch only verification data without overwriting inputs
+                        try {
+                            const { data } = await api.get('/api/grades');
+                            if (data && Array.isArray(data)) {
+                                setGrades(prev => {
+                                    const next = { ...prev };
+                                    data.forEach(g => {
+                                        if (next[g.subject]) {
+                                            next[g.subject] = {
+                                                ...next[g.subject], // Keep current exam/td values
+                                                isExamVerified: g.is_exam_verified,
+                                                isTdVerified: g.is_td_verified
+                                            };
+                                        }
+                                    });
+                                    return next;
+                                });
+                            }
+                        } catch (e) { /* silent */ }
+                    }
+                }
             }
         } catch (err) {
             console.error("Error saving all grades:", err);
@@ -321,16 +389,18 @@ const Dashboard = () => {
         if (e.key === 'Enter') {
             e.preventDefault();
             let nextId = '';
+            const currentSubject = SUBJECTS[index];
+            const hasTD = currentSubject.hasTD !== false;
 
-            if (type === 'exam') {
-                // Exam -> TD
+            if (type === 'exam' && hasTD) {
+                // Exam -> TD (only if subject has TD)
                 nextId = `${viewMode}-input-${index}-td`;
             } else {
-                // TD -> Next Exam
+                // TD -> Next Exam, or Exam -> Next Exam (if no TD)
                 if (index < SUBJECTS.length - 1) {
                     nextId = `${viewMode}-input-${index + 1}-exam`;
                 } else {
-                    // Last field -> Blur (or focus save button)
+                    // Last field -> Blur
                     e.target.blur();
                     return;
                 }
@@ -339,7 +409,6 @@ const Dashboard = () => {
             const nextElement = document.getElementById(nextId);
             if (nextElement) {
                 nextElement.focus();
-                // Optional: Select all text on focus for easier overwriting
                 nextElement.select();
             }
         }
@@ -423,21 +492,30 @@ const Dashboard = () => {
                         </div>
                     </div>
 
-                    <div className="flex gap-[0.75rem]">
+                    <div className="grid grid-cols-2 sm:flex gap-[0.5rem] sm:gap-[0.75rem] w-full sm:w-auto">
+                        {user && (
+                            <button
+                                onClick={() => setShowVerification(true)}
+                                className="col-span-1 px-[0.75rem] sm:px-[1.5rem] py-[0.875rem] sm:py-[1.125rem] rounded-[1rem] sm:rounded-[1.25rem] font-black text-[0.6rem] sm:text-[0.75rem] uppercase tracking-wider sm:tracking-widest flex items-center justify-center gap-[0.5rem] transition-all touch-feedback shadow-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.97]"
+                            >
+                                <Shield size={16} />
+                                Vérifier
+                            </button>
+                        )}
                         <button
                             onClick={exportToPDF}
-                            className="w-full sm:w-auto px-[1.5rem] py-[1.125rem] rounded-[1.25rem] font-black text-[0.75rem] uppercase tracking-widest flex items-center justify-center gap-[0.75rem] transition-all touch-feedback shadow-lg bg-gray-950 text-white hover:bg-black"
+                            className="col-span-1 px-[0.75rem] sm:px-[1.5rem] py-[0.875rem] sm:py-[1.125rem] rounded-[1rem] sm:rounded-[1.25rem] font-black text-[0.6rem] sm:text-[0.75rem] uppercase tracking-wider sm:tracking-widest flex items-center justify-center gap-[0.5rem] transition-all touch-feedback shadow-lg bg-gray-950 text-white hover:bg-black active:scale-[0.97]"
                         >
-                            <FileDown size={18} />
+                            <FileDown size={16} />
                             {t('exportPDF')}
                         </button>
                         <button
                             onClick={saveAllGrades}
                             disabled={saving}
-                            className={`w-full sm:w-auto px-[2rem] py-[1.125rem] rounded-[1.25rem] font-black text-[0.75rem] uppercase tracking-widest flex items-center justify-center gap-[0.75rem] transition-all touch-feedback shadow-lg ${saving ? 'bg-gray-100 text-gray-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                            className={`col-span-2 sm:col-span-1 px-[1rem] sm:px-[2rem] py-[0.875rem] sm:py-[1.125rem] rounded-[1rem] sm:rounded-[1.25rem] font-black text-[0.6rem] sm:text-[0.75rem] uppercase tracking-wider sm:tracking-widest flex items-center justify-center gap-[0.5rem] transition-all touch-feedback shadow-lg active:scale-[0.97] ${saving ? 'bg-gray-100 text-gray-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'
                                 }`}
                         >
-                            {saving ? <RefreshCcw size={18} className="animate-spin" /> : <Save size={18} />}
+                            {saving ? <RefreshCcw size={16} className="animate-spin" /> : <Save size={16} />}
                             {saving ? t('syncingLong') : t('saveAll')}
                         </button>
                     </div>
@@ -489,6 +567,10 @@ const Dashboard = () => {
                         <tbody className="divide-y divide-gray-50 text-center">
                             {SUBJECTS.map((s, index) => {
                                 const avg = calculations.subjects[s.name];
+                                const hasTD = s.hasTD !== false;
+                                const isExamVerified = grades[s.name].isExamVerified;
+                                const isTdVerified = grades[s.name].isTdVerified;
+
                                 return (
                                     <tr key={s.name} className="hover:bg-indigo-50/20 transition-colors">
                                         <td className="px-[2.5rem] py-[2rem] text-left">
@@ -498,27 +580,57 @@ const Dashboard = () => {
                                         <td className="px-[1rem] py-[2rem]">
                                             <span className="font-black text-gray-400 px-3 py-1 bg-gray-50 rounded-lg">×{s.coefficient}</span>
                                         </td>
-                                        <td className="px-[1rem] py-[2rem]">
+                                        <td className="px-[1rem] py-[2rem] relative">
                                             <input
                                                 id={`desktop-input-${index}-exam`}
                                                 type="number"
-                                                className="w-[6.5rem] mx-auto text-center bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner"
+                                                className={`w-[6.5rem] mx-auto text-center bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner ${isExamVerified === false ? 'border-amber-400 bg-amber-50' : ''}`}
                                                 value={grades[s.name].exam}
                                                 onChange={(e) => handleGradeChange(s.name, 'exam', e.target.value)}
                                                 onKeyDown={(e) => handleKeyDown(e, index, 'exam', 'desktop')}
                                                 placeholder="00.0"
                                             />
+                                            {isExamVerified === true && (
+                                                <div className="absolute top-1/2 right-4 -translate-y-1/2 text-green-500 pointer-events-none">
+                                                    <CheckCircle2 size={16} className="fill-green-500 text-white" />
+                                                </div>
+                                            )}
+                                            {isExamVerified === false && (
+                                                <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title="Note non vérifiée">
+                                                    <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
+                                                        <span className="font-bold text-[10px]">!</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </td>
-                                        <td className="px-[1rem] py-[2rem]">
-                                            <input
-                                                id={`desktop-input-${index}-td`}
-                                                type="number"
-                                                className="w-[6.5rem] mx-auto text-center bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner"
-                                                value={grades[s.name].td}
-                                                onChange={(e) => handleGradeChange(s.name, 'td', e.target.value)}
-                                                onKeyDown={(e) => handleKeyDown(e, index, 'td', 'desktop')}
-                                                placeholder="00.0"
-                                            />
+                                        <td className="px-[1rem] py-[2rem] relative">
+                                            {hasTD ? (
+                                                <>
+                                                    <input
+                                                        id={`desktop-input-${index}-td`}
+                                                        type="number"
+                                                        className={`w-[6.5rem] mx-auto text-center bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner ${isTdVerified === false ? 'border-amber-400 bg-amber-50' : ''}`}
+                                                        value={grades[s.name].td}
+                                                        onChange={(e) => handleGradeChange(s.name, 'td', e.target.value)}
+                                                        onKeyDown={(e) => handleKeyDown(e, index, 'td', 'desktop')}
+                                                        placeholder="00.0"
+                                                    />
+                                                    {isTdVerified === true && (
+                                                        <div className="absolute top-1/2 right-4 -translate-y-1/2 text-green-500 pointer-events-none">
+                                                            <CheckCircle2 size={16} className="fill-green-500 text-white" />
+                                                        </div>
+                                                    )}
+                                                    {isTdVerified === false && (
+                                                        <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title="Note non vérifiée">
+                                                            <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
+                                                                <span className="font-bold text-[10px]">!</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span className="text-gray-300 font-bold text-xs uppercase tracking-widest">--</span>
+                                            )}
                                         </td>
                                         <td className="px-[2.5rem] py-[2rem]">
                                             <div className="flex flex-col items-center gap-[0.35rem]">
@@ -587,6 +699,10 @@ const Dashboard = () => {
                 <div className="lg:hidden flex flex-col gap-[1rem] sm:grid sm:grid-cols-2 sm:gap-[1.5rem]">
                     {SUBJECTS.map((s, index) => {
                         const avg = calculations.subjects[s.name];
+                        const hasTD = s.hasTD !== false;
+                        const isExamVerified = grades[s.name].isExamVerified;
+                        const isTdVerified = grades[s.name].isTdVerified;
+
                         return (
                             <div key={s.name} className="bg-white rounded-[2rem] p-[1.5rem] border border-gray-100 shadow-xl flex flex-col justify-between hover:border-indigo-100 transition-colors">
                                 <div className="flex justify-between items-start mb-[1.5rem]">
@@ -600,29 +716,61 @@ const Dashboard = () => {
                                 </div>
 
                                 <div className="flex items-end gap-[0.75rem] mt-[1.5rem]">
-                                    <div className="flex-1">
+                                    <div className="flex-1 relative">
                                         <label className="block text-[0.5rem] font-black text-gray-400 uppercase tracking-widest mb-[0.5rem] ml-[0.5rem]">{t('examFull')}</label>
                                         <input
                                             id={`mobile-input-${index}-exam`}
                                             type="number"
-                                            className="w-full bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-center text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner touch-feedback"
+                                            className={`w-full bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-center text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner touch-feedback ${isExamVerified === false ? 'border-amber-400 bg-amber-50' : ''}`}
                                             value={grades[s.name].exam}
                                             onChange={(e) => handleGradeChange(s.name, 'exam', e.target.value)}
                                             onKeyDown={(e) => handleKeyDown(e, index, 'exam', 'mobile')}
                                             placeholder="00"
                                         />
+                                        {isExamVerified === true && (
+                                            <div className="absolute bottom-4 right-3 text-green-500 pointer-events-none">
+                                                <CheckCircle2 size={14} className="fill-green-500 text-white" />
+                                            </div>
+                                        )}
+                                        {isExamVerified === false && (
+                                            <div className="absolute bottom-4 right-3 text-amber-500 pointer-events-none">
+                                                <div className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
+                                                    <span className="font-bold text-[8px]">!</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="flex-1">
+                                    <div className="flex-1 relative">
                                         <label className="block text-[0.5rem] font-black text-gray-400 uppercase tracking-widest mb-[0.5rem] ml-[0.5rem]">{t('tdFull')}</label>
-                                        <input
-                                            id={`mobile-input-${index}-td`}
-                                            type="number"
-                                            className="w-full bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-center text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner touch-feedback"
-                                            value={grades[s.name].td}
-                                            onChange={(e) => handleGradeChange(s.name, 'td', e.target.value)}
-                                            onKeyDown={(e) => handleKeyDown(e, index, 'td', 'mobile')}
-                                            placeholder="00"
-                                        />
+                                        {hasTD ? (
+                                            <>
+                                                <input
+                                                    id={`mobile-input-${index}-td`}
+                                                    type="number"
+                                                    className={`w-full bg-gray-50 border-2 border-transparent rounded-[1rem] py-[1rem] text-center text-[1.125rem] font-black text-gray-950 focus:bg-white focus:border-indigo-600 outline-none transition-all shadow-inner touch-feedback ${isTdVerified === false ? 'border-amber-400 bg-amber-50' : ''}`}
+                                                    value={grades[s.name].td}
+                                                    onChange={(e) => handleGradeChange(s.name, 'td', e.target.value)}
+                                                    onKeyDown={(e) => handleKeyDown(e, index, 'td', 'mobile')}
+                                                    placeholder="00"
+                                                />
+                                                {isTdVerified === true && (
+                                                    <div className="absolute bottom-4 right-3 text-green-500 pointer-events-none">
+                                                        <CheckCircle2 size={14} className="fill-green-500 text-white" />
+                                                    </div>
+                                                )}
+                                                {isTdVerified === false && (
+                                                    <div className="absolute bottom-4 right-3 text-amber-500 pointer-events-none">
+                                                        <div className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
+                                                            <span className="font-bold text-[8px]">!</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <div className="h-[3.45rem] flex items-center justify-center bg-gray-50 rounded-[1rem] border-2 border-transparent">
+                                                <span className="text-gray-300 font-bold text-xs uppercase tracking-widest">--</span>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="flex-1">
                                         <label className="block text-[0.5rem] font-black text-gray-400 uppercase tracking-widest mb-[0.5rem] ml-[0.5rem] text-center">{t('averageShort')}</label>
@@ -666,6 +814,21 @@ const Dashboard = () => {
                 <footer className="mt-[5rem] pb-[2rem] text-center opacity-40">
                 </footer>
             </div>
+
+            {/* Grade Verification Modal */}
+            <GradeVerification
+                isOpen={showVerification}
+                onClose={() => setShowVerification(false)}
+                onCodeGenerated={handleCodeGenerated}
+            />
+
+            {/* Persistent Code Overlay */}
+            <CodeOverlay
+                code={overlayCode}
+                timeLeft={overlayTimeLeft}
+                ttl={120}
+                onClose={() => { setOverlayCode(null); setOverlayTimeLeft(0); }}
+            />
         </div>
     );
 };

@@ -14,7 +14,10 @@ await connectDB();
 const app = express();
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL ? [process.env.FRONTEND_URL, 'http://localhost:5173'] : true,
+    credentials: true
+}));
 app.use(express.json());
 
 app.get('/', (req, res) => {
@@ -39,6 +42,14 @@ const PORT = process.env.PORT || 5000;
 console.log("Starting server...");
 const server = app.listen(PORT, () => {
     console.log(`✅ Server is officially listening on port ${PORT}`);
+
+    // Self-ping to keep Render awake (free tier sleeps after 15m)
+    if (process.env.NODE_ENV === 'production') {
+        const url = `https://classement-api.onrender.com`; // Change if your URL is different
+        setInterval(() => {
+            fetch(url).then(() => console.log(`[KEEP-ALIVE] Pinged ${url}`)).catch(err => console.error(`[KEEP-ALIVE] Error: ${err.message}`));
+        }, 10 * 60 * 1000); // 10 minutes
+    }
 });
 
 server.on('error', (err) => {

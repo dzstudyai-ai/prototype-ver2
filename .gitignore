@@ -1,12 +1,7 @@
 node_modules/
 .env
-.DS_Store
+.env.local
+.env.production
 dist/
-build/
-.next/
+.DS_Store
 *.log
-.gemini/
-.agent/
-.vscode/
-frontend/node_modules/
-backend/node_modules/

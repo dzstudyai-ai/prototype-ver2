@@ -14,12 +14,51 @@ const COEFFICIENTS = {
 
 const TOTAL_COEF = 28;
 
+// Subjects with official grade verification — map app name to possible DB names
+const VERIFIED_SUBJECTS = {
+    'Algèbre 03': ['Algèbre 03', 'Algèbre 3'],
+    'Architecture 02': ['Architecture 02', 'Architecture 2'],
+};
+
 // Add or update grade
 export const addGrade = async (req, res) => {
     try {
         const { subject, examScore, tdScore } = req.body;
         const userId = req.user.id;
         const coefficient = COEFFICIENTS[subject] || 1;
+        let isExamVerified = null;
+        let isTdVerified = null;
+
+        // Check Official Grades - Separate Exam & TD Validation
+        const dbVariants = VERIFIED_SUBJECTS[subject];
+        if (dbVariants) {
+            const { data: userProfile } = await supabase
+                .from('users')
+                .select('student_id')
+                .eq('id', userId)
+                .single();
+
+            if (userProfile?.student_id) {
+                const suffix = userProfile.student_id.slice(-8);
+                const { data: official } = await supabase
+                    .from('official_grades')
+                    .select('final_note, td_note, subject, matricule')
+                    .like('matricule', `%${suffix}`)
+                    .in('subject', dbVariants)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (official) {
+                    if (official.final_note !== null && examScore !== null && examScore !== undefined) {
+                        isExamVerified = Math.abs(parseFloat(official.final_note) - parseFloat(examScore)) <= 0.05;
+                    }
+                    if (official.td_note !== null && tdScore !== null && tdScore !== undefined) {
+                        isTdVerified = Math.abs(parseFloat(official.td_note) - parseFloat(tdScore)) <= 0.05;
+                    }
+                    console.log(`[VERIFY][${subject}] Exam:`, isExamVerified, '| TD:', isTdVerified);
+                }
+            }
+        }
 
         // Upsert: insert or update if exists
         const { data: existing } = await supabase
@@ -33,7 +72,13 @@ export const addGrade = async (req, res) => {
         if (existing) {
             const { data, error } = await supabase
                 .from('grades')
-                .update({ exam_score: examScore, td_score: tdScore, updated_at: new Date() })
+                .update({
+                    exam_score: examScore,
+                    td_score: tdScore,
+                    is_exam_verified: isExamVerified,
+                    is_td_verified: isTdVerified,
+                    updated_at: new Date()
+                })
                 .eq('id', existing.id)
                 .select()
                 .single();
@@ -42,7 +87,15 @@ export const addGrade = async (req, res) => {
         } else {
             const { data, error } = await supabase
                 .from('grades')
-                .insert({ user_id: userId, subject, exam_score: examScore, td_score: tdScore, coefficient })
+                .insert({
+                    user_id: userId,
+                    subject,
+                    exam_score: examScore,
+                    td_score: tdScore,
+                    coefficient,
+                    is_exam_verified: isExamVerified,
+                    is_td_verified: isTdVerified
+                })
                 .select()
                 .single();
             if (error) throw error;
@@ -64,9 +117,52 @@ export const batchAddGrades = async (req, res) => {
         const { grades } = req.body; // Array of { subject, examScore, tdScore }
         const userId = req.user.id;
 
-        // Safer approach: Process sequentially to avoid constraint issues if unique index is missing
+        // Get User Profile once for batch
+        const { data: userProfile } = await supabase
+            .from('users')
+            .select('student_id')
+            .eq('id', userId)
+            .single();
+
+        console.log('[BATCH] User ID:', userId, '| student_id:', userProfile?.student_id);
+
+        // DEBUG: Check if official_grades has any data at all
+        const { data: sampleGrades, count } = await supabase
+            .from('official_grades')
+            .select('matricule, subject, final_note', { count: 'exact' })
+            .limit(3);
+        console.log('[BATCH] official_grades sample:', sampleGrades, '| total rows:', count);
+
+        const results = [];
+
+        // Safer approach: Process sequentially
         for (const g of grades) {
             const coefficient = COEFFICIENTS[g.subject] || 1;
+            let isExamVerified = null;
+            let isTdVerified = null;
+
+            // Verification Logic — Separate Exam & TD
+            const dbVariants = VERIFIED_SUBJECTS[g.subject];
+            if (dbVariants && userProfile?.student_id) {
+                const suffix = userProfile.student_id.slice(-8);
+                const { data: official } = await supabase
+                    .from('official_grades')
+                    .select('final_note, td_note, subject, matricule')
+                    .like('matricule', `%${suffix}`)
+                    .in('subject', dbVariants)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (official) {
+                    if (official.final_note !== null) {
+                        isExamVerified = Math.abs(parseFloat(official.final_note) - parseFloat(g.examScore)) <= 0.05;
+                    }
+                    if (official.td_note !== null) {
+                        isTdVerified = Math.abs(parseFloat(official.td_note) - parseFloat(g.tdScore)) <= 0.05;
+                    }
+                    console.log(`[BATCH-VERIFY][${g.subject}] Exam:`, isExamVerified, '| TD:', isTdVerified);
+                }
+            }
 
             // Check existence
             const { data: existing } = await supabase
@@ -74,7 +170,7 @@ export const batchAddGrades = async (req, res) => {
                 .select('id')
                 .eq('user_id', userId)
                 .eq('subject', g.subject)
-                .maybeSingle(); // Safely check
+                .maybeSingle();
 
             if (existing) {
                 await supabase
@@ -82,6 +178,8 @@ export const batchAddGrades = async (req, res) => {
                     .update({
                         exam_score: g.examScore,
                         td_score: g.tdScore,
+                        is_exam_verified: isExamVerified,
+                        is_td_verified: isTdVerified,
                         updated_at: new Date()
                     })
                     .eq('id', existing.id);
@@ -93,15 +191,24 @@ export const batchAddGrades = async (req, res) => {
                         subject: g.subject,
                         exam_score: g.examScore,
                         td_score: g.tdScore,
-                        coefficient
+                        coefficient,
+                        is_exam_verified: isExamVerified,
+                        is_td_verified: isTdVerified
                     });
             }
+
+            // Collect result for frontend
+            results.push({
+                subject: g.subject,
+                is_exam_verified: isExamVerified,
+                is_td_verified: isTdVerified
+            });
         }
 
         // Recalculate averages ONCE
         await calculateAverages(userId);
 
-        res.json({ message: 'Batch update successful' });
+        res.json(results);
     } catch (error) {
         console.error('Batch Update Error:', error);
         res.status(500).json({ message: error.message });
@@ -138,7 +245,18 @@ export const calculateAverages = async (userId) => {
     const updatesSubjectAverages = [];
 
     for (const grade of grades) {
-        let subjectAvg = (0.6 * grade.exam_score) + (0.4 * grade.td_score);
+        let subjectAvg;
+
+        // SPECIFIC RULE: Anglais 02 has no TD (Exam Only)
+        if (grade.subject === 'Anglais 02') {
+            subjectAvg = Number(grade.exam_score) || 0;
+        } else {
+            // Default: (60% Exam + 40% TD)
+            const exam = Number(grade.exam_score) || 0;
+            const td = Number(grade.td_score) || 0;
+            subjectAvg = (0.6 * exam) + (0.4 * td);
+        }
+
         // Standardize precision: Round to 2 decimal places BEFORE weighting
         subjectAvg = Math.round(subjectAvg * 100) / 100;
 

@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 const AuthContext = createContext();
 
@@ -11,15 +11,18 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     // Configure Axios defaults
+    axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || '';
+
     if (token) {
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
 
     useEffect(() => {
         const checkUser = async () => {
             if (token) {
                 try {
-                    const { data } = await axios.get('/api/auth/me');
+                    const { data } = await api.get('/api/grades/averages');
                     setUser(data);
                 } catch (error) {
                     console.error("Auth check failed", error);
@@ -31,12 +34,12 @@ export const AuthProvider = ({ children }) => {
         checkUser();
     }, [token]);
 
-    const login = async (studentId, password) => {
-        const { data } = await axios.post('/api/auth/login', { studentId, password });
+    const login = async (matricule, password) => {
+        const { data } = await api.post('/api/auth/login', { matricule, password });
         localStorage.setItem('token', data.token);
         setToken(data.token);
         setUser(data);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+        api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
         return data;
     };
 

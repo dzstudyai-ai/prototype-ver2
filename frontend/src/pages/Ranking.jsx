@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Trophy, Shield, CheckCircle, AlertCircle, Save, Settings, ChevronDown, ListFilter, Lock, Star, Sparkles, RefreshCcw, ArrowUp, ArrowDown, Users, RefreshCcw as RefreshCb, Upload, ScanLine, ShieldCheck, Camera } from 'lucide-react';
-import axios from 'axios';
+import { Trophy, Shield, CheckCircle, AlertCircle, Save, Settings, ChevronDown, ListFilter, Lock, Star, Sparkles, RefreshCcw, ArrowUp, ArrowDown, Users, Upload, ShieldCheck, Camera, X, Image, Loader2 } from 'lucide-react';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '../components/LoadingSpinner';
-import LiveScanner from '../components/LiveScanner';
 
 const SUBJECTS = [
     { name: 'general', i18nKey: 'Moyenne Générale' },
@@ -35,12 +34,16 @@ const Ranking = () => {
     const [filterMode, setFilterMode] = useState('all'); // all, top80, bottom20
 
     // Verification State
-    const [isVerified, setIsVerified] = useState(null); // null = loading, false = not, true = verified
+    const [isVerified, setIsVerified] = useState(null);
     const [verifying, setVerifying] = useState(false);
     const [verifyError, setVerifyError] = useState('');
     const [manualId, setManualId] = useState('');
-    const [showScanner, setShowScanner] = useState(false);
-    const [captureComplete, setCaptureComplete] = useState(false);
+    const [selectedImage, setSelectedImage] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [verifyDetails, setVerifyDetails] = useState(null);
+    const [verifyResponse, setVerifyResponse] = useState(null); // Full response with trust score
+    const fileInputRef = useRef(null);
+    const cameraInputRef = useRef(null);
 
     const scrollToMyRank = () => {
         const element = document.getElementById('my-rank-row');
@@ -54,7 +57,7 @@ const Ranking = () => {
     useEffect(() => {
         const fetchProfile = async () => {
             try {
-                const { data } = await axios.get('/api/auth/me');
+                const { data } = await api.get('/api/auth/me');
                 setMyAlias(data.alias);
                 setIsVerified(data.isVerified || false);
                 if (data.displayMode) {
@@ -81,7 +84,7 @@ const Ranking = () => {
                 ? `/api/rankings/general?_t=${Date.now()}`
                 : `/api/rankings/subject/${selectedSubject}?_t=${Date.now()}`;
 
-            const { data } = await axios.get(endpoint);
+            const { data } = await api.get(endpoint);
             setRankingData(data);
         } catch (error) {
             console.error("Error fetching ranking:", error);
@@ -96,7 +99,7 @@ const Ranking = () => {
             const initRanking = async () => {
                 // Force recalculation for the current user to ensure fresh data
                 try {
-                    await axios.post('/api/grades/recalc');
+                    await api.post('/api/grades/recalc');
                 } catch (e) {
                     console.error("Recalc failed", e);
                 }
@@ -116,7 +119,7 @@ const Ranking = () => {
         setLoading(true);
         try {
             await Promise.all([
-                axios.post('/api/rankings/refresh'),
+                api.post('/api/rankings/refresh'),
                 new Promise(resolve => setTimeout(resolve, 500))
             ]);
             await fetchRanking();
@@ -184,50 +187,65 @@ const Ranking = () => {
         }
     };
 
-    const handleCapture = async (idImageBlob, qrData = null, nameImageBlob = null, qrImageBlob = null) => {
-        console.log("=== HANDLE CAPTURE CALLED ===");
-        console.log("idImageBlob:", idImageBlob ? `BLOB (${idImageBlob.size} bytes)` : "null");
-        console.log("qrData:", qrData);
-        console.log("nameImageBlob:", nameImageBlob ? `BLOB (${nameImageBlob.size} bytes)` : "null");
-        console.log("qrImageBlob:", qrImageBlob ? `BLOB (${qrImageBlob.size} bytes)` : "null");
-        console.log("manualId:", manualId);
+    // Handle file selection (from gallery or camera)
+    const handleFileSelect = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setSelectedImage(file);
+        setVerifyError('');
+        setVerifyDetails(null);
 
-        if (verifying || isVerified) {
-            console.log("Already verifying or verified, skipping...");
-            return;
-        }
+        // Create preview
+        const reader = new FileReader();
+        reader.onload = (ev) => setImagePreview(ev.target.result);
+        reader.readAsDataURL(file);
+    };
+
+    const clearImage = () => {
+        setSelectedImage(null);
+        setImagePreview(null);
+        setVerifyDetails(null);
+        setVerifyError('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        if (cameraInputRef.current) cameraInputRef.current.value = '';
+    };
+
+    const handleUploadVerify = async () => {
+        if (verifying || isVerified) return;
 
         if (!manualId) {
-            setVerifyError(t('verifyFieldsRequired'));
+            setVerifyError('Veuillez entrer votre matricule.');
+            return;
+        }
+        if (!selectedImage) {
+            setVerifyError('Veuillez prendre ou choisir une photo de votre carte.');
             return;
         }
 
         setVerifying(true);
         setVerifyError('');
-        setShowScanner(false);
-        setCaptureComplete(true);
+        setVerifyDetails(null);
+        setVerifyResponse(null);
 
         const formData = new FormData();
         formData.append('manualStudentId', manualId);
-        formData.append('studentCard', idImageBlob, 'student_card.jpg');
-        if (nameImageBlob) formData.append('nameCard', nameImageBlob, 'name_part.jpg');
-        if (qrImageBlob) formData.append('qrCard', qrImageBlob, 'qr_part.jpg');
-        if (qrData) formData.append('qrData', qrData);
-
-        console.log("FormData prepared, sending to /api/auth/verify...");
+        formData.append('studentCard', selectedImage, 'student_card.jpg');
 
         try {
             const response = await axios.post('/api/auth/verify', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             console.log("✓ Verification SUCCESS:", response.data);
+            setVerifyResponse(response.data);
+            setVerifyDetails(response.data.details);
             setIsVerified(true);
             setSettingsOpen(true);
         } catch (err) {
             console.error("✗ Verification FAILED:", err);
-            console.error("Error response:", err.response?.data);
-            setVerifyError(err.response?.data?.message || t('verifyError'));
-            setCaptureComplete(false);
+            const data = err.response?.data;
+            setVerifyResponse(data);
+            setVerifyError(data?.message || 'Erreur de vérification.');
+            if (data?.details) setVerifyDetails(data.details);
         } finally {
             setVerifying(false);
         }
@@ -240,13 +258,6 @@ const Ranking = () => {
 
     return (
         <div className="w-full responsive-container py-[2rem] sm:py-[4rem]">
-            {showScanner && (
-                <LiveScanner
-                    onCapture={handleCapture}
-                    onClose={() => setShowScanner(false)}
-                    manualId={manualId}
-                />
-            )}
 
             {/* Header: Centered & Fluid */}
             <div className="text-center mb-[3.5rem] sm:mb-[5rem] px-4">
@@ -283,13 +294,127 @@ const Ranking = () => {
                         </p>
                     </div>
 
+                    {/* Error Display */}
                     {verifyError && (
-                        <div className="bg-red-50 border-2 border-red-100 text-red-600 p-[1rem] rounded-[1.25rem] mb-[2rem] text-[0.875rem] font-black flex items-center gap-[0.75rem] animate-in fade-in">
-                            <AlertCircle size={18} /> {verifyError}
+                        <div className="bg-red-50 border-2 border-red-100 text-red-600 p-[1rem] rounded-[1.25rem] mb-[2rem] text-[0.875rem] font-black whitespace-pre-line">
+                            <div className="flex items-start gap-[0.75rem]">
+                                <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+                                <span>{verifyError}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Trust Score + Verification Details */}
+                    {verifyResponse && (
+                        <div className="mb-[2rem] max-w-[35rem] mx-auto space-y-[1.5rem]">
+
+                            {/* Trust Score Gauge + Status Badge */}
+                            <div className="flex items-center justify-center gap-[2rem] p-[1.5rem] rounded-[1.5rem] bg-gray-50 border-2 border-gray-100">
+                                {/* Circular Score */}
+                                <div className="relative w-[5rem] h-[5rem] flex-shrink-0">
+                                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                                        <circle cx="50" cy="50" r="42" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+                                        <circle
+                                            cx="50" cy="50" r="42" fill="none"
+                                            strokeWidth="8" strokeLinecap="round"
+                                            stroke={verifyResponse.confidence_score >= 70 ? '#22c55e' : verifyResponse.confidence_score >= 40 ? '#f59e0b' : '#ef4444'}
+                                            strokeDasharray={`${(verifyResponse.confidence_score / 100) * 264} 264`}
+                                        />
+                                    </svg>
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <span className="text-[1.125rem] font-black text-gray-900">{verifyResponse.confidence_score}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className={`inline-flex px-[1rem] py-[0.375rem] rounded-full text-[0.75rem] font-black uppercase tracking-widest ${verifyResponse.validation_status === 'VALID' ? 'bg-green-100 text-green-700' :
+                                        verifyResponse.validation_status === 'SUSPICIOUS' ? 'bg-amber-100 text-amber-700' :
+                                            'bg-red-100 text-red-700'
+                                        }`}>
+                                        {verifyResponse.validation_status === 'VALID' ? '✅ VALIDE' :
+                                            verifyResponse.validation_status === 'SUSPICIOUS' ? '⚠️ SUSPECT' : '❌ REJETÉ'}
+                                    </div>
+                                    <p className="text-[0.625rem] text-gray-400 font-bold mt-[0.5rem] uppercase tracking-widest">
+                                        Score de confiance
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Fraud Flags */}
+                            {verifyResponse.fraud_flags && verifyResponse.fraud_flags.length > 0 && (
+                                <div className="space-y-[0.5rem]">
+                                    {verifyResponse.fraud_flags.map((flag, i) => (
+                                        <div key={i} className={`flex items-start gap-[0.75rem] p-[1rem] rounded-[1rem] text-[0.8rem] font-bold border-2 ${flag.severity === 'CRITICAL' ? 'bg-red-50 border-red-200 text-red-700' :
+                                            flag.severity === 'HIGH' ? 'bg-orange-50 border-orange-200 text-orange-700' :
+                                                'bg-amber-50 border-amber-200 text-amber-700'
+                                            }`}>
+                                            <Shield size={16} className="flex-shrink-0 mt-0.5" />
+                                            <span>{flag.message}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Detail Checks */}
+                            {verifyDetails && (
+                                <div className="bg-gray-50 border-2 border-gray-100 rounded-[1.25rem] p-[1.5rem]">
+                                    <p className="text-[0.625rem] font-black text-gray-400 uppercase tracking-[0.3em] mb-[1rem]">Détails de l'analyse</p>
+                                    <div className="space-y-[0.625rem]">
+                                        {[
+                                            { ok: verifyDetails.qrFound, label: 'QR Code', detail: verifyDetails.qrFound ? 'détecté' : 'non détecté' },
+                                            { ok: verifyDetails.nameFound, label: 'Nom', detail: verifyDetails.nameFound ? verifyDetails.detectedName : 'non trouvé' },
+                                            { ok: verifyDetails.prenomFound, label: 'Prénom', detail: verifyDetails.prenomFound ? verifyDetails.detectedPrenom : 'non trouvé' },
+                                            { ok: verifyDetails.matriculeMatch, label: 'Matricule', detail: verifyDetails.matriculeMatch ? 'correspond' : 'ne correspond pas' },
+                                            { ok: verifyDetails.studentExists, label: 'Base de données', detail: verifyDetails.studentExists ? 'étudiant trouvé' : 'étudiant introuvable' },
+                                        ].map((item, i) => (
+                                            <div key={i} className={`flex items-center justify-between text-[0.8rem] font-bold ${item.ok ? 'text-green-600' : 'text-red-500'}`}>
+                                                <div className="flex items-center gap-[0.5rem]">
+                                                    {item.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                                                    <span>{item.label}</span>
+                                                </div>
+                                                <span className="text-[0.7rem] opacity-80">{item.detail}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Image Quality + OCR Confidence mini bars */}
+                                    {(verifyDetails.imageQuality != null || verifyDetails.ocrConfidence != null) && (
+                                        <div className="mt-[1rem] pt-[1rem] border-t border-gray-200 space-y-[0.5rem]">
+                                            {verifyDetails.imageQuality != null && (
+                                                <div className="flex items-center gap-[0.75rem] text-[0.7rem] font-bold text-gray-500">
+                                                    <span className="w-[6rem]">Qualité image</span>
+                                                    <div className="flex-1 h-[0.375rem] bg-gray-200 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full transition-all ${verifyDetails.imageQuality >= 60 ? 'bg-green-500' : verifyDetails.imageQuality >= 35 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${verifyDetails.imageQuality}%` }} />
+                                                    </div>
+                                                    <span className="w-[2rem] text-right">{verifyDetails.imageQuality}%</span>
+                                                </div>
+                                            )}
+                                            {verifyDetails.ocrConfidence != null && (
+                                                <div className="flex items-center gap-[0.75rem] text-[0.7rem] font-bold text-gray-500">
+                                                    <span className="w-[6rem]">OCR confiance</span>
+                                                    <div className="flex-1 h-[0.375rem] bg-gray-200 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full transition-all ${verifyDetails.ocrConfidence >= 60 ? 'bg-green-500' : verifyDetails.ocrConfidence >= 35 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${verifyDetails.ocrConfidence}%` }} />
+                                                    </div>
+                                                    <span className="w-[2rem] text-right">{verifyDetails.ocrConfidence}%</span>
+                                                </div>
+                                            )}
+                                            {verifyDetails.screenshotProbability != null && verifyDetails.screenshotProbability > 20 && (
+                                                <div className="flex items-center gap-[0.75rem] text-[0.7rem] font-bold text-red-500">
+                                                    <span className="w-[6rem]">Screenshot</span>
+                                                    <div className="flex-1 h-[0.375rem] bg-gray-200 rounded-full overflow-hidden">
+                                                        <div className="h-full rounded-full bg-red-500 transition-all" style={{ width: `${verifyDetails.screenshotProbability}%` }} />
+                                                    </div>
+                                                    <span className="w-[2rem] text-right">{verifyDetails.screenshotProbability}%</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
                     <div className="space-y-[2rem] max-w-[35rem] mx-auto relative z-10">
+                        {/* Student ID Input */}
                         <div>
                             <label className="block text-[0.625rem] font-black text-amber-600 uppercase tracking-[0.3em] mb-[1rem]">{t('enterStudentId')}</label>
                             <input
@@ -301,30 +426,90 @@ const Ranking = () => {
                             />
                         </div>
 
+                        {/* Photo Upload */}
                         <div>
-                            <label className="block text-[0.625rem] font-black text-amber-600 uppercase tracking-[0.3em] mb-[1rem]">{t('uploadCardPhoto')}</label>
+                            <label className="block text-[0.625rem] font-black text-amber-600 uppercase tracking-[0.3em] mb-[1rem]">{t('uploadCardPhoto') || 'Photo de la carte'}</label>
 
-                            <button
-                                type="button"
-                                onClick={() => setShowScanner(true)}
-                                disabled={verifying}
-                                className={`w-full flex items-center justify-center gap-[1rem] py-[1.5rem] px-[1.5rem] rounded-[1.5rem] border-2 border-dashed font-black transition-all touch-feedback ${captureComplete ? 'border-green-300 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100'
-                                    }`}
-                            >
-                                {captureComplete ? <CheckCircle size={24} /> : <Camera size={24} />}
-                                {captureComplete ? "Capture terminée" : "Ouvrir le Scanner Live"}
-                            </button>
-                            <p className="mt-4 text-center text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                                Scannez votre carte en direct pour sécuriser l'accès.
+                            {/* Hidden file inputs */}
+                            <input
+                                ref={cameraInputRef}
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleFileSelect}
+                                className="hidden"
+                            />
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleFileSelect}
+                                className="hidden"
+                            />
+
+                            {!imagePreview ? (
+                                <div className="grid grid-cols-2 gap-[1rem]">
+                                    <button
+                                        type="button"
+                                        onClick={() => cameraInputRef.current?.click()}
+                                        disabled={verifying}
+                                        className="flex flex-col items-center justify-center gap-[0.75rem] py-[2rem] px-[1rem] rounded-[1.5rem] border-2 border-dashed border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 font-black transition-all touch-feedback"
+                                    >
+                                        <Camera size={28} />
+                                        <span className="text-[0.75rem] uppercase tracking-wider">Prendre Photo</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={verifying}
+                                        className="flex flex-col items-center justify-center gap-[0.75rem] py-[2rem] px-[1rem] rounded-[1.5rem] border-2 border-dashed border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 font-black transition-all touch-feedback"
+                                    >
+                                        <Image size={28} />
+                                        <span className="text-[0.75rem] uppercase tracking-wider">Galerie</span>
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="relative">
+                                    <img
+                                        src={imagePreview}
+                                        alt="Aperçu carte"
+                                        className="w-full rounded-[1.5rem] border-2 border-amber-200 object-cover max-h-[20rem]"
+                                    />
+                                    <button
+                                        onClick={clearImage}
+                                        className="absolute top-[0.75rem] right-[0.75rem] p-[0.5rem] bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-all"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                    <p className="mt-[0.75rem] text-center text-[0.625rem] text-green-600 font-black uppercase tracking-widest flex items-center justify-center gap-[0.5rem]">
+                                        <CheckCircle size={12} /> Photo sélectionnée
+                                    </p>
+                                </div>
+                            )}
+                            <p className="mt-[0.75rem] text-center text-[0.625rem] text-gray-400 font-bold uppercase tracking-widest">
+                                Prenez une photo nette de votre carte étudiante (QR code visible).
                             </p>
                         </div>
 
-                        {verifying && (
-                            <div className="flex flex-col items-center gap-4 py-4 animate-pulse">
-                                <ScanLine size={32} className="text-amber-500" />
-                                <span className="text-amber-600 font-black text-xs uppercase tracking-widest">{t('scanning')}...</span>
-                            </div>
-                        )}
+                        {/* Submit Button */}
+                        <button
+                            type="button"
+                            onClick={handleUploadVerify}
+                            disabled={verifying || !manualId || !selectedImage}
+                            className="w-full flex items-center justify-center gap-[1rem] py-[1.5rem] px-[2rem] rounded-[1.5rem] bg-amber-500 text-white font-black text-[0.875rem] uppercase tracking-widest shadow-xl hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all touch-feedback"
+                        >
+                            {verifying ? (
+                                <>
+                                    <Loader2 size={22} className="animate-spin" />
+                                    Analyse en cours...
+                                </>
+                            ) : (
+                                <>
+                                    <Upload size={22} />
+                                    Vérifier ma carte
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
             )}
