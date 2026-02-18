@@ -10,11 +10,10 @@ export const AuthProvider = ({ children }) => {
     const [token, setToken] = useState(localStorage.getItem('token') || null);
     const [loading, setLoading] = useState(true);
 
-    // Configure Axios defaults
-    axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL || '';
+    // Configure API defaults
+    api.defaults.baseURL = import.meta.env.VITE_API_URL || '';
 
     if (token) {
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
 
@@ -61,7 +60,7 @@ export const AuthProvider = ({ children }) => {
             }
         }
 
-        const { data } = await axios.post('/api/auth/register', {
+        const { data } = await api.post('/api/auth/register', {
             studentId,
             password,
             initialGrades
@@ -73,7 +72,7 @@ export const AuthProvider = ({ children }) => {
 
         setToken(data.token);
         setUser(data);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+        api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
         return data;
     };
 
@@ -81,7 +80,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('token');
         setToken(null);
         setUser(null);
-        delete axios.defaults.headers.common['Authorization'];
+        delete api.defaults.headers.common['Authorization'];
     };
 
     return (

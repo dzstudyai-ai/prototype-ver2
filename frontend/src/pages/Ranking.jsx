@@ -150,7 +150,7 @@ const Ranking = () => {
 
     const checkAliasUniqueness = async (alias) => {
         try {
-            const { data } = await axios.get(`/api/auth/check-alias/${alias}`);
+            const { data } = await api.get(`/api/auth/check-alias/${alias}`);
             setAliasStatus(data.available ? 'unique' : 'duplicate');
         } catch (error) {
             console.error("Error check alias", error);
@@ -169,7 +169,7 @@ const Ranking = () => {
 
     const updateProfile = async () => {
         try {
-            await axios.put('/api/auth/profile', {
+            await api.put('/api/auth/profile', {
                 alias: myAlias,
                 displayMode
             });
@@ -232,7 +232,7 @@ const Ranking = () => {
         formData.append('studentCard', selectedImage, 'student_card.jpg');
 
         try {
-            const response = await axios.post('/api/auth/verify', formData, {
+            const response = await api.post('/api/auth/verify', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             console.log("✓ Verification SUCCESS:", response.data);
