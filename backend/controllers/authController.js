@@ -99,12 +99,13 @@ export const registerUser = async (req, res) => {
 // Login
 export const authUser = async (req, res) => {
     try {
-        const { studentId, password } = req.body;
+        const { studentId, matricule, password } = req.body;
+        const idToSearch = studentId || matricule;
 
         const { data: user, error } = await supabase
             .from('users')
             .select('*')
-            .eq('student_id', studentId)
+            .eq('student_id', idToSearch)
             .single();
 
         if (error || !user) {
@@ -115,6 +116,7 @@ export const authUser = async (req, res) => {
         if (!isMatch) {
             return res.status(401).json({ message: 'Identifiants incorrects' });
         }
+
 
         res.json({
             _id: user.id,
