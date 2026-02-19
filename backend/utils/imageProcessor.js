@@ -232,10 +232,11 @@ function extractEXIF(metadata) {
  */
 export async function preprocessForOCR(buffer) {
     return sharp(buffer)
-        .resize(1500)
+        .resize(1800) // Slightly larger for better detail
         .grayscale()
+        .modulate({ brightness: 1.1, contrast: 1.2 }) // Boost visibility
         .normalize()
-        .sharpen({ sigma: 1.5 })
+        .sharpen({ sigma: 1.5, m1: 2, m2: 4 })
         .toBuffer();
 }
 
@@ -259,8 +260,24 @@ export async function preprocessForQRContrast(buffer) {
     const { data, info } = await sharp(buffer)
         .resize(1000)
         .grayscale()
+        .modulate({ contrast: 2.0 }) // High contrast
         .normalize()
         .sharpen()
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+    return { rawData: new Uint8ClampedArray(data), width: info.width, height: info.height };
+}
+
+/**
+ * Threshold preprocessing for QR (good for faded copies)
+ */
+export async function preprocessForQRThreshold(buffer, threshold = 128) {
+    const { data, info } = await sharp(buffer)
+        .resize(1000)
+        .grayscale()
+        .threshold(threshold)
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });

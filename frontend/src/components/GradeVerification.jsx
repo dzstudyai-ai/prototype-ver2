@@ -110,9 +110,9 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
         try {
             const { data } = await api.get('/api/grades/verify/code');
             setCode(data.code);
-            setTimeLeft(120); // Backend TTL is 120s
+            setTimeLeft(300); // Backend TTL is 300s
             setPhase('code');
-            if (onCodeGenerated) onCodeGenerated(data.code, 120);
+            if (onCodeGenerated) onCodeGenerated(data.code, 300);
         } catch (err) {
             setError(err.response?.data?.message || 'Erreur lors de la génération du code');
         }
@@ -259,7 +259,7 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                     <Clock size={16} /> Expire dans {timeLeft}s
                                 </div>
                                 <div className="mt-4 w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                                    <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${(timeLeft / 120) * 100}%` }} />
+                                    <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${(timeLeft / 300) * 100}%` }} />
                                 </div>
                             </div>
 
@@ -324,8 +324,8 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                     return (
                                         <div key={step.id} className="flex items-center gap-4 transition-all duration-500">
                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all ${isCompleted ? 'bg-green-500/20 border-green-500/40 text-green-400' :
-                                                    isCurrent ? 'bg-indigo-600 border-indigo-500 text-white animate-pulse' :
-                                                        'bg-gray-900 border-gray-800 text-gray-600'
+                                                isCurrent ? 'bg-indigo-600 border-indigo-500 text-white animate-pulse' :
+                                                    'bg-gray-900 border-gray-800 text-gray-600'
                                                 }`}>
                                                 {isCompleted ? <CheckCircle2 size={16} /> : idx + 1}
                                             </div>

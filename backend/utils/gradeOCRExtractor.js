@@ -100,6 +100,12 @@ export function extractGrades(ocrText) {
 
     console.log('[GRADE-OCR] Parsing', lines.length, 'lines');
 
+    // Detect page context (is this more likely an Exam page or a TD page?)
+    let pageContext = 'unknown';
+    const textLower = ocrText.toLowerCase();
+    if (textLower.includes('examen') && !textLower.includes('td')) pageContext = 'exam';
+    if ((textLower.includes('td') || textLower.includes('cc')) && !textLower.includes('examen')) pageContext = 'td';
+
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const matched = matchModule(line);
@@ -109,19 +115,37 @@ export function extractGrades(ocrText) {
 
             // Look for grades in the same line and next lines
             const gradeContext = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
+
+            // Match integers or decimals
             const gradeNumbers = gradeContext.match(/\b(\d{1,2}[.,]\d{1,2})\b|\b(\d{1,2})\b/g);
 
             let examGrade = null;
             let tdGrade = null;
 
             if (gradeNumbers) {
-                const validGrades = gradeNumbers
-                    .map(g => parseFloat(g.replace(',', '.')))
-                    .filter(g => g >= 0 && g <= 20);
+                const parsed = gradeNumbers.map(g => parseFloat(g.replace(',', '.')));
 
-                // First valid grade is typically exam, second is TD
-                if (validGrades.length >= 1) examGrade = validGrades[0];
-                if (validGrades.length >= 2 && matched.hasTD) tdGrade = validGrades[1];
+                // Heuristic: If the first number is exactly the coefficient and there are more numbers,
+                // skip the first one as it's likely the coefficient column.
+                let filteredGrades = parsed;
+                if (parsed.length > 1 && parsed[0] === matched.coefficient) {
+                    filteredGrades = parsed.slice(1);
+                }
+
+                const finalCandidates = filteredGrades.filter(g => g >= 0 && g <= 20);
+
+                if (finalCandidates.length === 1) {
+                    // One number found: use page context clues
+                    if (pageContext === 'td') {
+                        tdGrade = finalCandidates[0];
+                    } else {
+                        examGrade = finalCandidates[0]; // Default to exam
+                    }
+                } else if (finalCandidates.length >= 2) {
+                    // Two numbers: usually TD then Exam in Progrès list
+                    tdGrade = finalCandidates[0];
+                    examGrade = finalCandidates[1];
+                }
             }
 
             extractedGrades[matched.name] = {
@@ -131,7 +155,7 @@ export function extractGrades(ocrText) {
                 hasTD: matched.hasTD
             };
 
-            console.log(`[GRADE-OCR] Found: ${matched.name} → exam=${examGrade}, td=${tdGrade}`);
+            console.log(`[GRADE-OCR] Found: ${matched.name} → exam=${examGrade}, td=${tdGrade} (context=${pageContext})`);
         }
     }
 

@@ -6,7 +6,7 @@ import { detectTampering } from '../utils/gradeTamperingDetector.js';
 import { calculateGradeTrustScore, getGradeStatusMessage } from '../utils/gradeTrustScoring.js';
 import { runAllOCR, buildFrameConsensus, checkCodeInResults } from '../utils/multiOCR.js';
 
-const CODE_TTL_SECONDS = 120;
+const CODE_TTL_SECONDS = 300;
 const CODE_PREFIX = 'AG-S3-';
 
 /**

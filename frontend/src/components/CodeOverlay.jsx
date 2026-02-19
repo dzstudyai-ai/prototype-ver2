@@ -5,7 +5,7 @@ import { Shield, Clock, X, ChevronDown, ChevronUp } from 'lucide-react';
  * CodeOverlay — Persistent floating verification code displayed on screen.
  * Visible during screenshots. Responsive for mobile and desktop.
  */
-const CodeOverlay = ({ code, timeLeft, ttl = 120, onClose }) => {
+const CodeOverlay = ({ code, timeLeft, ttl = 300, onClose }) => {
     const [minimized, setMinimized] = useState(false);
     const [position, setPosition] = useState({ x: 16, y: 16 });
     const dragRef = useRef(null);

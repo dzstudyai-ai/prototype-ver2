@@ -826,7 +826,7 @@ const Dashboard = () => {
             <CodeOverlay
                 code={overlayCode}
                 timeLeft={overlayTimeLeft}
-                ttl={120}
+                ttl={300}
                 onClose={() => { setOverlayCode(null); setOverlayTimeLeft(0); }}
             />
         </div>

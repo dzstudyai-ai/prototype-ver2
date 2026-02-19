@@ -219,6 +219,27 @@ export const verifyStudent = async (req, res) => {
                 } catch (e) { /* continue */ }
             }
 
+            // QR Fallback: thresholding (Great for low light)
+            if (!qrResults.qrFound) {
+                const thresholds = [100, 150];
+                for (const t of thresholds) {
+                    try {
+                        const qrData = await preprocessForQRThreshold(imageBuffer, t);
+                        const code = jsQR(qrData.rawData, qrData.width, qrData.height, {
+                            inversionAttempts: 'attemptBoth'
+                        });
+                        if (code && code.data) {
+                            qrResults.qrFound = true;
+                            qrResults.qrContent = code.data;
+                            qrResults.inputMatch = code.data.includes(idKernel);
+                            extractedData.qrContent = code.data;
+                            console.log(`  └─ ✅ QR trouvé (threshold ${t}): ${code.data}`);
+                            break;
+                        }
+                    } catch (e) { /* continue */ }
+                }
+            }
+
             if (!qrResults.qrFound) {
                 console.log("  └─ ❌ Aucun QR détecté");
             }
@@ -281,12 +302,25 @@ export const verifyStudent = async (req, res) => {
                 }
 
                 // Check MATRICULE in OCR text
-                const textDigits = text.replace(/[^0-9]/g, '');
-                if (idKernel && textDigits.includes(idKernel)) {
+                // More robust matching: handle common OCR errors (1->I, 0->O, etc)
+                const fuzzyDigits = text.toUpperCase()
+                    .replace(/I|L|T/g, '1')
+                    .replace(/O|Q/g, '0')
+                    .replace(/S/g, '5')
+                    .replace(/B/g, '8')
+                    .replace(/[^0-9]/g, '');
+
+                const cleanManualId = manualStudentId.replace(/[^0-9]/g, '');
+
+                if (cleanManualId && fuzzyDigits.includes(cleanManualId)) {
                     ocrResults.matriculeMatch = true;
-                    console.log(`  ├─ ✅ Matricule ${idKernel} trouvé dans OCR`);
+                    console.log(`  ├─ ✅ Matricule complet ${cleanManualId} trouvé dans OCR (FUZZY)`);
+                } else if (idKernel && fuzzyDigits.includes(idKernel)) {
+                    ocrResults.matriculeMatch = true;
+                    console.log(`  ├─ ✅ Matricule partiel (kernel) ${idKernel} trouvé dans OCR (FUZZY)`);
                 } else {
-                    console.log(`  ├─ ❌ Matricule ${idKernel} PAS trouvé dans OCR`);
+                    console.log(`  ├─ ❌ Matricule ${idKernel} non détecté dans OCR`);
+                    console.log(`  │  (Digits OCR: ${fuzzyDigits.substring(0, 30)}...)`);
                 }
 
                 console.log(`  └─ Résumé OCR: nom=${ocrResults.nameFound} prénom=${ocrResults.prenomFound} id=${ocrResults.matriculeMatch}`);
@@ -296,11 +330,11 @@ export const verifyStudent = async (req, res) => {
             }
         })();
 
-        // Race against timeout (60s)
+        // Race against timeout (180s)
         await Promise.race([
             analysisPromise,
             new Promise((_, reject) => {
-                timeoutId = setTimeout(() => reject(new Error("TIMEOUT")), 60000);
+                timeoutId = setTimeout(() => reject(new Error("TIMEOUT")), 180000);
             })
         ]);
         if (timeoutId) clearTimeout(timeoutId);
