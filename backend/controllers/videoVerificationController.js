@@ -5,9 +5,9 @@ import crypto from 'crypto';
 import { createWorker } from 'tesseract.js';
 import { supabase } from '../config/db.js';
 import { extractFrames } from '../utils/videoProcessor.js';
-import { runAllOCR, buildFrameConsensus } from '../utils/multiOCR.js';
+import { runAllOCR, buildFrameConsensus, checkCodeInResults } from '../utils/multiOCR.js';
 import { aggregateTemporalResults, crossCheckWithPortal } from '../utils/temporalAggregator.js';
-import { calculateVideoTrustScore } from '../utils/videoTrustScoring.js';
+import { calculateVideoTrustScore, getVideoStatusMessage } from '../utils/videoTrustScoring.js';
 import { detectTampering } from '../utils/gradeTamperingDetector.js';
 
 /**
@@ -18,6 +18,7 @@ export const submitVideoVerification = async (req, res) => {
     try {
         const userId = req.user.id;
         const videoFile = req.file;
+        const { code } = req.body;
 
         if (!videoFile) {
             return res.status(400).json({ message: 'Vidéo manquante' });
@@ -41,10 +42,9 @@ export const submitVideoVerification = async (req, res) => {
         if (insertError) throw insertError;
 
         // 2. Start background processing
-        // We use setImmediate to let the request return immediately
-        setImmediate(() => processVideoJob(job.id, videoFile.buffer, userId));
+        setImmediate(() => processVideoJob(job.id, videoFile.buffer, userId, code));
 
-        // 3. Return Job ID immediately (Render 30s timeout fix)
+        // 3. Return Job ID immediately
         res.status(202).json({
             message: 'Vérification lancée',
             jobId: job.id,
@@ -59,7 +59,6 @@ export const submitVideoVerification = async (req, res) => {
 
 /**
  * Get Video Verification Status (Polling endpoint)
- * GET /api/grades/verify/video/status/:id
  */
 export const getVideoVerificationStatus = async (req, res) => {
     try {
@@ -83,7 +82,7 @@ export const getVideoVerificationStatus = async (req, res) => {
 /**
  * Internal Background Processor
  */
-async function processVideoJob(jobId, videoBuffer, userId) {
+async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
     const startTime = Date.now();
     let worker = null;
 
@@ -103,19 +102,30 @@ async function processVideoJob(jobId, videoBuffer, userId) {
             throw new Error('Aucune capture claire extraite de la vidéo');
         }
 
-        // STEP 2: OCR Analysis (Sequential with worker reuse)
+        // STEP 2: OCR Analysis
         await updateStatus('OCR_ANALYSIS');
         worker = await createWorker('fra+eng');
 
         const frameResults = [];
+        let codeFound = false;
+
         for (let i = 0; i < frames.length; i++) {
             const result = await runAllOCR(frames[i].buffer, worker);
+
+            // Check for code in any frame
+            if (!codeFound && verificationCode) {
+                const check = checkCodeInResults(result.results, verificationCode);
+                if (check.found) codeFound = true;
+            }
+
             frameResults.push({
-                index: i,
+                frameIndex: i,
+                timestamp: i, // Approximation if timestamps not available from extractor
                 results: result.results,
-                gradeExtractions: result.gradeExtractions
+                gradeExtractions: result.gradeExtractions,
+                consensus: buildFrameConsensus(result.gradeExtractions)
             });
-            // Update progress occasionally
+
             if (i % 2 === 0) {
                 await updateStatus(`OCR_ANALYSIS_${i + 1}/${frames.length}`);
             }
@@ -123,8 +133,7 @@ async function processVideoJob(jobId, videoBuffer, userId) {
 
         // STEP 3: Consensus & Temporal Aggregation
         await updateStatus('AGGREGATING_RESULTS');
-        const frameConsensus = frameResults.map(fr => buildFrameConsensus(fr.gradeExtractions));
-        const temporal = aggregateTemporalResults(frameConsensus);
+        const temporal = aggregateTemporalResults(frameResults);
 
         // STEP 4: Portal Cross-Check
         await updateStatus('PORTAL_CROSS_CHECK');
@@ -135,50 +144,62 @@ async function processVideoJob(jobId, videoBuffer, userId) {
 
         const crossCheck = crossCheckWithPortal(temporal.finalGrades, portalGrades || []);
 
-        // STEP 5: Tampering Detection (on first clear frame)
+        // STEP 5: Tampering Detection
         await updateStatus('TAMPERING_DETECTION');
         const tampering = await detectTampering(frames[0].buffer);
 
         // STEP 6: Final Scoring
         await updateStatus('CALCULATING_SCORE');
+
+        // Prepare data for the scoring utility
+        const ocrAgreement = {
+            confidence: temporal.consistency,
+            disagreements: frameResults.flatMap(f => f.consensus.disagreements || [])
+        };
+
         const scoreResult = calculateVideoTrustScore({
-            ocrResults: frameResults,
-            temporal,
-            crossCheck,
-            tampering
+            ocrAgreement,
+            extractedGrades: temporal.finalGrades,
+            portalGrades: portalGrades ? portalGrades.reduce((acc, g) => {
+                acc[g.subject] = { exam: g.examScore, td: g.tdScore };
+                return acc;
+            }, {}) : {},
+            temporalResult: temporal,
+            tamperingResult: tampering,
+            codeResult: { found: codeFound }
         });
 
         // STEP 7: Final Save
         const processingTime = (Date.now() - startTime) / 1000;
-        const status = scoreResult.trustScore >= 60 ? 'VERIFIED' : 'REJECTED';
+        const message = getVideoStatusMessage(scoreResult.status, scoreResult.trustScore);
 
         await supabase
             .from('grade_verifications')
             .update({
-                status: status,
+                status: scoreResult.status,
                 current_step: 'COMPLETED',
                 trust_score: scoreResult.trustScore,
                 extracted_grades: temporal.finalGrades,
-                ocr_agreement_score: scoreResult.breakdown.ocr,
-                temporal_consistency_score: scoreResult.breakdown.temporal,
-                arithmetic_accuracy_score: scoreResult.breakdown.arithmetic,
+                ocr_agreement_score: scoreResult.breakdown.ocrAgreement?.score || 0,
+                temporal_consistency_score: scoreResult.breakdown.temporalConsistency?.score || 0,
+                arithmetic_accuracy_score: scoreResult.breakdown.arithmeticAccuracy?.score || 0,
                 tampering_probability: tampering.tamperingProbability,
                 frames_analyzed: frames.length,
                 issues: scoreResult.issues,
                 processing_time: processingTime,
-                score_breakdown: scoreResult.breakdown
+                score_breakdown: scoreResult.breakdown,
+                message: message
             })
             .eq('id', jobId);
 
-        // If verified, update the user's status globally
-        if (status === 'VERIFIED') {
+        if (scoreResult.status === 'VERIFIED') {
             await supabase
                 .from('users')
                 .update({ is_verified: true })
                 .eq('id', userId);
         }
 
-        console.log(`[VIDEO-JOB] Job ${jobId} completed for user ${userId} in ${processingTime}s`);
+        console.log(`[VIDEO-JOB] Job ${jobId} completed in ${processingTime}s`);
 
     } catch (err) {
         console.error(`[VIDEO-JOB] Error processing job ${jobId}:`, err);

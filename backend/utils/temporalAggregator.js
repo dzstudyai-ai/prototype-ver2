@@ -16,7 +16,7 @@
  * @param {Array} frameResults - Array of { frameIndex, timestamp, consensus: { consensusGrades } }
  * @returns {Object} { finalGrades, consistency, flags[], framesAnalyzed }
  */
-export function aggregateFrames(frameResults) {
+export function aggregateTemporalResults(frameResults) {
     if (!frameResults || frameResults.length === 0) {
         return { finalGrades: {}, consistency: 0, flags: [], framesAnalyzed: 0 };
     }

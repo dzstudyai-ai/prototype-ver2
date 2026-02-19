@@ -1,12 +1,10 @@
 import { createWorker } from 'tesseract.js';
 import crypto from 'crypto';
 import { supabase } from '../config/db.js';
-import { analyzeImage, preprocessForOCR, getImageHash } from '../utils/imageProcessor.js';
-import { detectFraud } from '../utils/fraudDetector.js';
-import { extractGrades, validateGradeStructure, findVerificationCode, mergeGrades, calculateAverages } from '../utils/gradeOCRExtractor.js';
+import { validateGradeStructure, findVerificationCode, mergeGrades, calculateAverages } from '../utils/gradeOCRExtractor.js';
 import { detectTampering } from '../utils/gradeTamperingDetector.js';
-import { calculateGradeTrustScore } from '../utils/gradeTrustScoring.js';
-import { runAllOCR, buildFrameConsensus } from '../utils/multiOCR.js';
+import { calculateGradeTrustScore, getGradeStatusMessage } from '../utils/gradeTrustScoring.js';
+import { runAllOCR, buildFrameConsensus, checkCodeInResults } from '../utils/multiOCR.js';
 
 const CODE_TTL_SECONDS = 120;
 const CODE_PREFIX = 'AG-S3-';
@@ -32,15 +30,13 @@ export const generateCode = async (req, res) => {
         const expiresAt = new Date(Date.now() + CODE_TTL_SECONDS * 1000).toISOString();
 
         // Save to database
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('verification_codes')
             .insert({
                 user_id: userId,
                 code,
                 expires_at: expiresAt
-            })
-            .select()
-            .single();
+            });
 
         if (error) throw error;
 
@@ -53,7 +49,7 @@ export const generateCode = async (req, res) => {
 /**
  * Process single image internally using multi-engine OCR
  */
-async function processImageInternal(imageBuffer, code, userId, worker) {
+async function processImageInternal(imageBuffer, code, worker) {
     // 1. OCR with Multi-Engine (Tesseract + OCR.space)
     const { results, gradeExtractions } = await runAllOCR(imageBuffer, worker);
 
@@ -74,7 +70,6 @@ async function processImageInternal(imageBuffer, code, userId, worker) {
         consensus
     };
 }
-
 
 /**
  * Submit screenshots for verification (Async Start)
@@ -143,44 +138,59 @@ async function processScreenshotJob(jobId, tdBuffer, examBuffer, code, userId) {
 
         // STEP 1: Process TD Screenshot
         await updateStatus('PROCESSING_TD');
-        const tdResult = await processImageInternal(tdBuffer, code, userId, worker);
+        const tdResult = await processImageInternal(tdBuffer, code, worker);
 
         // STEP 2: Process Exam Screenshot
         await updateStatus('PROCESSING_EXAM');
-        const examResult = await processImageInternal(examBuffer, code, userId, worker);
+        const examResult = await processImageInternal(examBuffer, code, worker);
 
         // STEP 3: Logic & Scoring
         await updateStatus('CALCULATING_RESULTS');
-        const mergedGrades = mergeGrades(tdResult.grades, examResult.grades);
-        const averages = calculateAverages(mergedGrades);
-        const structure = validateGradeStructure(mergedGrades);
 
-        const trustScore = calculateGradeTrustScore({
-            td: tdResult,
-            exam: examResult,
-            averages,
-            structure
+        const mergedResults = mergeGrades(
+            { grades: tdResult.grades.extractedGrades },
+            { grades: examResult.grades.extractedGrades }
+        );
+
+        const averages = calculateAverages(mergedResults.grades);
+        const structure = validateGradeStructure(mergedResults.grades);
+
+        // Aggregate code check result
+        const codeResult = {
+            found: tdResult.codeCheck.found || examResult.codeCheck.found,
+            exact: tdResult.codeCheck.exact || examResult.codeCheck.exact,
+            confidence: Math.max(tdResult.codeCheck.confidence, examResult.codeCheck.confidence)
+        };
+
+        const scoreResult = calculateGradeTrustScore({
+            codeResult,
+            structureResult: structure,
+            tamperingResult: {
+                tamperingProbability: Math.max(tdResult.tamperingResult.tamperingProbability, examResult.tamperingResult.tamperingProbability)
+            },
+            modulesFound: mergedResults.modulesFound
         });
 
         // STEP 4: Final Save
         const processingTime = (Date.now() - startTime) / 1000;
-        const status = (trustScore.score >= 60) ? 'VERIFIED' : 'REJECTED';
+        const message = getGradeStatusMessage(scoreResult.status, scoreResult.trustScore);
 
         await supabase
             .from('grade_verifications')
             .update({
-                status: status,
+                status: scoreResult.status,
                 current_step: 'COMPLETED',
-                trust_score: trustScore.score,
-                extracted_grades: mergedGrades,
+                trust_score: scoreResult.trustScore,
+                extracted_grades: mergedResults.grades,
                 tampering_probability: Math.max(tdResult.tamperingResult.tamperingProbability, examResult.tamperingResult.tamperingProbability),
-                issues: trustScore.issues,
+                issues: scoreResult.issues,
                 processing_time: processingTime,
-                score_breakdown: trustScore.breakdown
+                score_breakdown: scoreResult.breakdown,
+                message: message
             })
             .eq('id', jobId);
 
-        if (status === 'VERIFIED') {
+        if (scoreResult.status === 'VERIFIED') {
             await supabase
                 .from('users')
                 .update({ is_verified: true })
@@ -204,7 +214,6 @@ async function processScreenshotJob(jobId, tdBuffer, examBuffer, code, userId) {
 
 /**
  * Get overall verification status for current user
- * GET /api/grades/verify/status
  */
 export const getVerificationStatus = async (req, res) => {
     try {
