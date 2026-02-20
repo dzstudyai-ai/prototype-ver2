@@ -9,6 +9,7 @@ import { runAllOCR, buildFrameConsensus, checkCodeInResults } from '../utils/mul
 import { aggregateTemporalResults, crossCheckWithPortal } from '../utils/temporalAggregator.js';
 import { calculateVideoTrustScore, getVideoStatusMessage } from '../utils/videoTrustScoring.js';
 import { detectTampering } from '../utils/gradeTamperingDetector.js';
+import { compareGrades } from '../utils/gradeComparator.js';
 
 /**
  * Submit video for verification (Async Start)
@@ -135,14 +136,15 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
         await updateStatus('AGGREGATING_RESULTS');
         const temporal = aggregateTemporalResults(frameResults);
 
-        // STEP 4: Portal Cross-Check
-        await updateStatus('PORTAL_CROSS_CHECK');
+        // STEP 4: CREDIBILITY CHECK — Compare OCR vs User Grades
+        await updateStatus('COMPARING_GRADES');
         const { data: portalGrades } = await supabase
             .from('grades')
             .select('*')
             .eq('user_id', userId);
 
-        const crossCheck = crossCheckWithPortal(temporal.finalGrades, portalGrades || []);
+        const credibility = compareGrades(temporal.finalGrades, portalGrades || []);
+        console.log(`[VIDEO-VERIFY] Credibility: ${credibility.summary}`);
 
         // STEP 5: Tampering Detection
         await updateStatus('TAMPERING_DETECTION');
@@ -161,13 +163,25 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
             ocrAgreement,
             extractedGrades: temporal.finalGrades,
             portalGrades: portalGrades ? portalGrades.reduce((acc, g) => {
-                acc[g.subject] = { exam: g.examScore, td: g.tdScore };
+                acc[g.subject] = { exam: g.exam_score, td: g.td_score };
                 return acc;
             }, {}) : {},
             temporalResult: temporal,
             tamperingResult: tampering,
             codeResult: { found: codeFound }
         });
+
+        // Override status if credibility check fails
+        if (!credibility.passed) {
+            scoreResult.status = 'REJECTED';
+            scoreResult.issues = scoreResult.issues || [];
+            scoreResult.issues.push(`Crédibilité insuffisante: ${credibility.score}/${credibility.total}`);
+            if (credibility.mandatoryFailures.length > 0) {
+                scoreResult.issues.push(
+                    `Notes obligatoires incorrectes: ${credibility.mandatoryFailures.map(f => `${f.module} ${f.type}`).join(', ')}`
+                );
+            }
+        }
 
         // STEP 7: Final Save
         const processingTime = (Date.now() - startTime) / 1000;
@@ -180,6 +194,9 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
                 current_step: 'COMPLETED',
                 trust_score: scoreResult.trustScore,
                 extracted_grades: temporal.finalGrades,
+                credibility_score: credibility.score,
+                credibility_total: credibility.total,
+                credibility_details: credibility.details,
                 ocr_agreement_score: scoreResult.breakdown.ocrAgreement?.score || 0,
                 temporal_consistency_score: scoreResult.breakdown.temporalConsistency?.score || 0,
                 arithmetic_accuracy_score: scoreResult.breakdown.arithmeticAccuracy?.score || 0,

@@ -5,6 +5,7 @@ import { validateGradeStructure, findVerificationCode, mergeGrades, calculateAve
 import { detectTampering } from '../utils/gradeTamperingDetector.js';
 import { calculateGradeTrustScore, getGradeStatusMessage } from '../utils/gradeTrustScoring.js';
 import { runAllOCR, buildFrameConsensus, checkCodeInResults } from '../utils/multiOCR.js';
+import { compareGrades } from '../utils/gradeComparator.js';
 
 const CODE_TTL_SECONDS = 300;
 const CODE_PREFIX = 'AG-S3-';
@@ -162,6 +163,16 @@ async function processScreenshotJob(jobId, tdBuffer, examBuffer, code, userId) {
             confidence: Math.max(tdResult.codeCheck.confidence, examResult.codeCheck.confidence)
         };
 
+        // ─── STEP 3b: CREDIBILITY CHECK — Compare OCR vs User Grades ───
+        await updateStatus('COMPARING_GRADES');
+        const { data: userGrades } = await supabase
+            .from('grades')
+            .select('*')
+            .eq('user_id', userId);
+
+        const credibility = compareGrades(mergedResults.grades, userGrades || []);
+        console.log(`[SCREENSHOT-VERIFY] Credibility: ${credibility.summary}`);
+
         const scoreResult = calculateGradeTrustScore({
             codeResult,
             structureResult: structure,
@@ -170,6 +181,18 @@ async function processScreenshotJob(jobId, tdBuffer, examBuffer, code, userId) {
             },
             modulesFound: mergedResults.modulesFound
         });
+
+        // Override status if credibility check fails
+        if (!credibility.passed) {
+            scoreResult.status = 'REJECTED';
+            scoreResult.issues = scoreResult.issues || [];
+            scoreResult.issues.push(`Crédibilité insuffisante: ${credibility.score}/${credibility.total}`);
+            if (credibility.mandatoryFailures.length > 0) {
+                scoreResult.issues.push(
+                    `Notes obligatoires incorrectes: ${credibility.mandatoryFailures.map(f => `${f.module} ${f.type}`).join(', ')}`
+                );
+            }
+        }
 
         // STEP 4: Final Save
         const processingTime = (Date.now() - startTime) / 1000;
@@ -182,6 +205,9 @@ async function processScreenshotJob(jobId, tdBuffer, examBuffer, code, userId) {
                 current_step: 'COMPLETED',
                 trust_score: scoreResult.trustScore,
                 extracted_grades: mergedResults.grades,
+                credibility_score: credibility.score,
+                credibility_total: credibility.total,
+                credibility_details: credibility.details,
                 tampering_probability: Math.max(tdResult.tamperingResult.tamperingProbability, examResult.tamperingResult.tamperingProbability),
                 issues: scoreResult.issues,
                 processing_time: processingTime,
