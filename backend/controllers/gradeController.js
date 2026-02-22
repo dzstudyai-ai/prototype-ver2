@@ -16,8 +16,14 @@ const TOTAL_COEF = 28;
 
 // Subjects with official grade verification — map app name to possible DB names
 const VERIFIED_SUBJECTS = {
+    'Analyse 03': ['Analyse 03', 'Analyse 3'],
     'Algèbre 03': ['Algèbre 03', 'Algèbre 3'],
+    'Probabilité et Statistique 01': ['Probabilité et Statistique 01', 'Probabilités et Statistiques 01'],
     'Architecture 02': ['Architecture 02', 'Architecture 2'],
+    'SFSD': ['SFSD'],
+    'Électronique Fondamentale 02': ['Électronique Fondamentale 02', 'Électronique 02'],
+    'Économie d\'entreprise': ['Économie d\'entreprise'],
+    'Anglais 02': ['Anglais 02'],
 };
 
 // Add or update grade
@@ -143,9 +149,13 @@ export const batchAddGrades = async (req, res) => {
 
             // Verification Logic — Separate Exam & TD
             const dbVariants = VERIFIED_SUBJECTS[g.subject];
+            console.log(`[BATCH] Processing ${g.subject} | Variants:`, dbVariants);
+
             if (dbVariants && userProfile?.student_id) {
                 const suffix = userProfile.student_id.slice(-8);
-                const { data: official } = await supabase
+                console.log(`[BATCH] Searching for matricule %${suffix} with variants:`, dbVariants);
+
+                const { data: official, error: offError } = await supabase
                     .from('official_grades')
                     .select('final_note, td_note, subject, matricule')
                     .like('matricule', `%${suffix}`)
@@ -153,7 +163,10 @@ export const batchAddGrades = async (req, res) => {
                     .limit(1)
                     .maybeSingle();
 
+                if (offError) console.error(`[BATCH] DB Error searching official grades for ${g.subject}:`, offError);
+
                 if (official) {
+                    console.log(`[BATCH] Found official record for ${g.subject}:`, official);
                     if (official.final_note !== null) {
                         isExamVerified = Math.abs(parseFloat(official.final_note) - parseFloat(g.examScore)) <= 0.05;
                     }
@@ -161,6 +174,8 @@ export const batchAddGrades = async (req, res) => {
                         isTdVerified = Math.abs(parseFloat(official.td_note) - parseFloat(g.tdScore)) <= 0.05;
                     }
                     console.log(`[BATCH-VERIFY][${g.subject}] Exam:`, isExamVerified, '| TD:', isTdVerified);
+                } else {
+                    console.log(`[BATCH] No official record found for ${g.subject} with variants ${dbVariants} and suffix ${suffix}`);
                 }
             }
 

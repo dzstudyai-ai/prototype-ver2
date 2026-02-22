@@ -6,15 +6,19 @@ import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const SUBJECTS = [
-    { name: 'general', i18nKey: 'Moyenne Générale' },
-    { name: 'Analyse 03', i18nKey: 'Analyse 03' },
-    { name: 'Algèbre 03', i18nKey: 'Algèbre 03' },
-    { name: 'Économie d\'entreprise', i18nKey: 'Économie d\'entreprise' },
-    { name: 'Probabilité et Statistique 01', i18nKey: 'Probabilité et Statistique 01' },
-    { name: 'Anglais 02', i18nKey: 'Anglais 02' },
-    { name: 'SFSD', i18nKey: 'SFSD' },
-    { name: 'Architecture 02', i18nKey: 'Architecture 02' },
-    { name: 'Électronique Fondamentale 02', i18nKey: 'Électronique Fondamentale 02' },
+    { name: 'general', i18nKey: 'Moyenne Générale', type: 'general' },
+    { name: 'Analyse 03', i18nKey: 'Analyse 03', type: 'subject' },
+    { name: 'Algèbre 03', i18nKey: 'Algèbre 03', type: 'subject' },
+    { name: 'Économie d\'entreprise', i18nKey: 'Économie d\'entreprise', type: 'subject' },
+    { name: 'Probabilité et Statistique 01', i18nKey: 'Probabilité et Statistique 01', type: 'subject' },
+    { name: 'Anglais 02', i18nKey: 'Anglais 02', type: 'subject' },
+    { name: 'SFSD', i18nKey: 'SFSD', type: 'subject' },
+    { name: 'Architecture 02', i18nKey: 'Architecture 02', type: 'subject' },
+    { name: 'Électronique Fondamentale 02', i18nKey: 'Électronique Fondamentale 02', type: 'subject' },
+    { name: 'group-A1', i18nKey: '👥 Groupe A1', type: 'group', group: 'A1' },
+    { name: 'group-A2', i18nKey: '👥 Groupe A2', type: 'group', group: 'A2' },
+    { name: 'group-A3', i18nKey: '👥 Groupe A3', type: 'group', group: 'A3' },
+    { name: 'group-A4', i18nKey: '👥 Groupe A4', type: 'group', group: 'A4' },
 ];
 
 const Ranking = () => {
@@ -80,9 +84,16 @@ const Ranking = () => {
     const fetchRanking = async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            const endpoint = selectedSubject === 'general'
-                ? `/api/rankings/general?_t=${Date.now()}`
-                : `/api/rankings/subject/${selectedSubject}?_t=${Date.now()}`;
+            const selectedObj = SUBJECTS.find(s => s.name === selectedSubject);
+            let endpoint;
+
+            if (selectedObj?.type === 'group') {
+                endpoint = `/api/rankings/group/${selectedObj.group}?_t=${Date.now()}`;
+            } else if (selectedSubject === 'general') {
+                endpoint = `/api/rankings/general?_t=${Date.now()}`;
+            } else {
+                endpoint = `/api/rankings/subject/${selectedSubject}?_t=${Date.now()}`;
+            }
 
             const { data } = await api.get(endpoint);
             setRankingData(data);
@@ -214,11 +225,11 @@ const Ranking = () => {
         if (verifying || isVerified) return;
 
         if (!manualId) {
-            setVerifyError('Veuillez entrer votre matricule.');
+            setVerifyError(t('matriculeError'));
             return;
         }
         if (!selectedImage) {
-            setVerifyError('Veuillez prendre ou choisir une photo de votre carte.');
+            setVerifyError(t('photoError'));
             return;
         }
 
@@ -244,7 +255,7 @@ const Ranking = () => {
             console.error("✗ Verification FAILED:", err);
             const data = err.response?.data;
             setVerifyResponse(data);
-            setVerifyError(data?.message || 'Erreur de vérification.');
+            setVerifyError(data?.message || t('verifyErrorGeneric'));
             if (data?.details) setVerifyDetails(data.details);
         } finally {
             setVerifying(false);
@@ -330,11 +341,11 @@ const Ranking = () => {
                                         verifyResponse.validation_status === 'SUSPICIOUS' ? 'bg-amber-100 text-amber-700' :
                                             'bg-red-100 text-red-700'
                                         }`}>
-                                        {verifyResponse.validation_status === 'VALID' ? '✅ VALIDE' :
-                                            verifyResponse.validation_status === 'SUSPICIOUS' ? '⚠️ SUSPECT' : '❌ REJETÉ'}
+                                        {verifyResponse.validation_status === 'VALID' ? `✅ ${t('valid')}` :
+                                            verifyResponse.validation_status === 'SUSPICIOUS' ? `⚠️ ${t('suspicious')}` : `❌ ${t('rejected')}`}
                                     </div>
                                     <p className="text-[0.625rem] text-gray-400 font-bold mt-[0.5rem] uppercase tracking-widest">
-                                        Score de confiance
+                                        {t('confidenceScore')}
                                     </p>
                                 </div>
                             </div>
@@ -357,14 +368,14 @@ const Ranking = () => {
                             {/* Detail Checks */}
                             {verifyDetails && (
                                 <div className="bg-gray-50 border-2 border-gray-100 rounded-[1.25rem] p-[1.5rem]">
-                                    <p className="text-[0.625rem] font-black text-gray-400 uppercase tracking-[0.3em] mb-[1rem]">Détails de l'analyse</p>
+                                    <p className="text-[0.625rem] font-black text-gray-400 uppercase tracking-[0.3em] mb-[1rem]">{t('analysisDetails')}</p>
                                     <div className="space-y-[0.625rem]">
                                         {[
-                                            { ok: verifyDetails.qrFound, label: 'QR Code', detail: verifyDetails.qrFound ? 'détecté' : 'non détecté' },
-                                            { ok: verifyDetails.nameFound, label: 'Nom', detail: verifyDetails.nameFound ? verifyDetails.detectedName : 'non trouvé' },
-                                            { ok: verifyDetails.prenomFound, label: 'Prénom', detail: verifyDetails.prenomFound ? verifyDetails.detectedPrenom : 'non trouvé' },
-                                            { ok: verifyDetails.matriculeMatch, label: 'Matricule', detail: verifyDetails.matriculeMatch ? 'correspond' : 'ne correspond pas' },
-                                            { ok: verifyDetails.studentExists, label: 'Base de données', detail: verifyDetails.studentExists ? 'étudiant trouvé' : 'étudiant introuvable' },
+                                            { ok: verifyDetails.qrFound, label: t('qrCodeLabel'), detail: verifyDetails.qrFound ? t('detected') : t('notDetected') },
+                                            { ok: verifyDetails.nameFound, label: t('nameLabel'), detail: verifyDetails.nameFound ? verifyDetails.detectedName : t('nameNotFound') },
+                                            { ok: verifyDetails.prenomFound, label: t('firstNameLabel'), detail: verifyDetails.prenomFound ? verifyDetails.detectedPrenom : t('firstNameNotFound') },
+                                            { ok: verifyDetails.matriculeMatch, label: t('matriculeLabel'), detail: verifyDetails.matriculeMatch ? t('matriculeMatches') : t('matriculeNoMatch') },
+                                            { ok: verifyDetails.studentExists, label: t('databaseLabel'), detail: verifyDetails.studentExists ? t('studentFound') : t('studentNotFound') },
                                         ].map((item, i) => (
                                             <div key={i} className={`flex items-center justify-between text-[0.8rem] font-bold ${item.ok ? 'text-green-600' : 'text-red-500'}`}>
                                                 <div className="flex items-center gap-[0.5rem]">
@@ -381,7 +392,7 @@ const Ranking = () => {
                                         <div className="mt-[1rem] pt-[1rem] border-t border-gray-200 space-y-[0.5rem]">
                                             {verifyDetails.imageQuality != null && (
                                                 <div className="flex items-center gap-[0.75rem] text-[0.7rem] font-bold text-gray-500">
-                                                    <span className="w-[6rem]">Qualité image</span>
+                                                    <span className="w-[6rem]">{t('imageQuality')}</span>
                                                     <div className="flex-1 h-[0.375rem] bg-gray-200 rounded-full overflow-hidden">
                                                         <div className={`h-full rounded-full transition-all ${verifyDetails.imageQuality >= 60 ? 'bg-green-500' : verifyDetails.imageQuality >= 35 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${verifyDetails.imageQuality}%` }} />
                                                     </div>
@@ -390,7 +401,7 @@ const Ranking = () => {
                                             )}
                                             {verifyDetails.ocrConfidence != null && (
                                                 <div className="flex items-center gap-[0.75rem] text-[0.7rem] font-bold text-gray-500">
-                                                    <span className="w-[6rem]">OCR confiance</span>
+                                                    <span className="w-[6rem]">{t('ocrConfidence')}</span>
                                                     <div className="flex-1 h-[0.375rem] bg-gray-200 rounded-full overflow-hidden">
                                                         <div className={`h-full rounded-full transition-all ${verifyDetails.ocrConfidence >= 60 ? 'bg-green-500' : verifyDetails.ocrConfidence >= 35 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${verifyDetails.ocrConfidence}%` }} />
                                                     </div>
@@ -456,7 +467,7 @@ const Ranking = () => {
                                         className="flex flex-col items-center justify-center gap-[0.75rem] py-[2rem] px-[1rem] rounded-[1.5rem] border-2 border-dashed border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 font-black transition-all touch-feedback"
                                     >
                                         <Camera size={28} />
-                                        <span className="text-[0.75rem] uppercase tracking-wider">Prendre Photo</span>
+                                        <span className="text-[0.75rem] uppercase tracking-wider">{t('takePhoto')}</span>
                                     </button>
                                     <button
                                         type="button"
@@ -465,7 +476,7 @@ const Ranking = () => {
                                         className="flex flex-col items-center justify-center gap-[0.75rem] py-[2rem] px-[1rem] rounded-[1.5rem] border-2 border-dashed border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-400 hover:bg-amber-100 font-black transition-all touch-feedback"
                                     >
                                         <Image size={28} />
-                                        <span className="text-[0.75rem] uppercase tracking-wider">Galerie</span>
+                                        <span className="text-[0.75rem] uppercase tracking-wider">{t('gallery')}</span>
                                     </button>
                                 </div>
                             ) : (
@@ -482,12 +493,12 @@ const Ranking = () => {
                                         <X size={16} />
                                     </button>
                                     <p className="mt-[0.75rem] text-center text-[0.625rem] text-green-600 font-black uppercase tracking-widest flex items-center justify-center gap-[0.5rem]">
-                                        <CheckCircle size={12} /> Photo sélectionnée
+                                        <CheckCircle size={12} /> {t('photoSelected')}
                                     </p>
                                 </div>
                             )}
                             <p className="mt-[0.75rem] text-center text-[0.625rem] text-gray-400 font-bold uppercase tracking-widest">
-                                Prenez une photo nette de votre carte étudiante (QR code visible).
+                                {t('photoInstruction')}
                             </p>
                         </div>
 
@@ -501,12 +512,12 @@ const Ranking = () => {
                             {verifying ? (
                                 <>
                                     <Loader2 size={22} className="animate-spin" />
-                                    Analyse en cours...
+                                    {t('analysisInProgress')}
                                 </>
                             ) : (
                                 <>
                                     <Upload size={22} />
-                                    Vérifier ma carte
+                                    {t('verifyMyCard')}
                                 </>
                             )}
                         </button>
@@ -594,9 +605,16 @@ const Ranking = () => {
                                     value={selectedSubject}
                                     onChange={(e) => setSelectedSubject(e.target.value)}
                                 >
-                                    {SUBJECTS.map(s => (
-                                        <option key={s.name} value={s.name}>{t(s.i18nKey)}</option>
-                                    ))}
+                                    <optgroup label={t('bySubject')}>
+                                        {SUBJECTS.filter(s => s.type !== 'group').map(s => (
+                                            <option key={s.name} value={s.name}>{t(s.i18nKey)}</option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label={t('byGroup')}>
+                                        {SUBJECTS.filter(s => s.type === 'group').map(s => (
+                                            <option key={s.name} value={s.name}>{t(s.i18nKey)}</option>
+                                        ))}
+                                    </optgroup>
                                 </select>
                                 <div className="absolute right-[1.5rem] top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                                     <ChevronDown size={20} />

@@ -10,21 +10,36 @@
  *   4. Compute consistency score
  */
 
+import { MODULE_NAME_MAP } from './gradeComparator.js';
+
 /**
  * Aggregate grades across multiple frames using majority vote
  * 
- * @param {Array} frameResults - Array of { frameIndex, timestamp, consensus: { consensusGrades } }
- * @returns {Object} { finalGrades, consistency, flags[], framesAnalyzed }
+ * @param {Array} frameResults - Array of { frameIndex, timestamp, results, consensus: { consensusGrades } }
+ * @returns {Object} { finalGrades, consistency, flags[], framesAnalyzed, verificationStatus }
  */
 export function aggregateTemporalResults(frameResults) {
     if (!frameResults || frameResults.length === 0) {
-        return { finalGrades: {}, consistency: 0, flags: [], framesAnalyzed: 0 };
+        return { finalGrades: {}, consistency: 0, flags: [], framesAnalyzed: 0, verificationStatus: { passed: false, reason: 'NO_FRAMES' } };
     }
 
     // Collect all observed module grades across frames
     const moduleObservations = {}; // { moduleName: [{ frame, exam, td }] }
 
+    // Track page types found and their timestamps (Rule 4, 5, 6)
+    const pageTypesDetected = {
+        exam: [],
+        assessment: []
+    };
+
     for (const frame of frameResults) {
+        // Track page type (Rule 3 result passed from OCR)
+        // We look at the first gradeExtraction's pageContext for simplicity, or use buildFrameConsensus
+        const context = frame.gradeExtractions?.[0]?.grades?.pageContext || 'unknown';
+        if (context === 'exam' || context === 'assessment') {
+            pageTypesDetected[context].push(frame.timestamp);
+        }
+
         const grades = frame.consensus?.consensusGrades || {};
         for (const [module, data] of Object.entries(grades)) {
             if (!moduleObservations[module]) moduleObservations[module] = [];
@@ -38,53 +53,101 @@ export function aggregateTemporalResults(frameResults) {
         }
     }
 
+    // ─── Verification Rules ─────────────────────────────────────
+    const validationFlags = {
+        hasExamScreen: pageTypesDetected.exam.length > 0,
+        hasAssessmentScreen: pageTypesDetected.assessment.length > 0,
+        timeDifferenceValid: true,
+        pagesIndependent: false
+    };
+
+    // Rule 4 & 5: If only one screen is detected, stop and reject
+    let passed = validationFlags.hasExamScreen && validationFlags.hasAssessmentScreen;
+    let failReason = '';
+
+    if (!validationFlags.hasExamScreen || !validationFlags.hasAssessmentScreen) {
+        failReason = 'SCREEN_MISSING: ' +
+            (!validationFlags.hasExamScreen ? 'Relevé de Notes ' : '') +
+            (!validationFlags.hasAssessmentScreen ? 'Fiches d\'Évaluation' : '');
+    }
+
+    // Rule 6: Time difference between both detections <= 30 minutes
+    // Note: Since standard video is 60s, this is mostly for multi-video logic 
+    // or extracted metadata if available. For now we check the frame timestamps.
+    if (passed) {
+        const firstExamTs = pageTypesDetected.exam[0];
+        const firstAssessTs = pageTypesDetected.assessment[0];
+        const diff = Math.abs(firstExamTs - firstAssessTs);
+
+        // Ensure they are at least in different frames (Rule 4 independence)
+        validationFlags.pagesIndependent = diff > 0.5; // at least 0.5s difference
+
+        if (diff > 1800) { // 30 minutes in seconds
+            validationFlags.timeDifferenceValid = false;
+            passed = false;
+            failReason = 'TIME_GAP_TOO_LARGE';
+        }
+    }
+
     const finalGrades = {};
     const flags = [];
     let totalConsistency = 0;
     let moduleCount = 0;
 
-    for (const [module, observations] of Object.entries(moduleObservations)) {
-        // ─── Majority Vote for Exam ───
-        const examVotes = observations.map(o => o.exam).filter(v => v !== null && v !== undefined);
-        const tdVotes = observations.map(o => o.td).filter(v => v !== null && v !== undefined);
+    // Rule 9: Do not calculate averages unless both datasets are valid (passed rules)
+    if (passed) {
+        for (const [module, observations] of Object.entries(moduleObservations)) {
+            // ─── Majority Vote for Exam ───
+            const examVotes = observations.map(o => o.exam).filter(v => v !== null && v !== undefined);
+            const tdVotes = observations.map(o => o.td).filter(v => v !== null && v !== undefined);
 
-        const examResult = majorityVote(examVotes);
-        const tdResult = majorityVote(tdVotes);
+            const examResult = majorityVote(examVotes);
+            const tdResult = majorityVote(tdVotes);
 
-        finalGrades[module] = {
-            exam: examResult.value,
-            td: tdResult.value,
-            examConsistency: examResult.consistency,
-            tdConsistency: tdResult.consistency,
-            framesFound: observations.length
-        };
+            finalGrades[module] = {
+                exam: examResult.value,
+                td: tdResult.value,
+                examConsistency: examResult.consistency,
+                tdConsistency: tdResult.consistency,
+                framesFound: observations.length
+            };
 
-        // ─── Detect Fluctuations ───
-        const examFluc = detectFluctuations(observations.map(o => ({ value: o.exam, frame: o.frameIndex, ts: o.timestamp })));
-        const tdFluc = detectFluctuations(observations.map(o => ({ value: o.td, frame: o.frameIndex, ts: o.timestamp })));
+            // ─── Detect Fluctuations ───
+            const examFluc = detectFluctuations(observations.map(o => ({ value: o.exam, frame: o.frameIndex, ts: o.timestamp })));
+            const tdFluc = detectFluctuations(observations.map(o => ({ value: o.td, frame: o.frameIndex, ts: o.timestamp })));
 
-        if (examFluc.length > 0) {
-            flags.push({ module, type: 'exam', fluctuations: examFluc, severity: 'high' });
+            if (examFluc.length > 0) {
+                flags.push({ module, type: 'exam', fluctuations: examFluc, severity: 'high' });
+            }
+            if (tdFluc.length > 0) {
+                flags.push({ module, type: 'td', fluctuations: tdFluc, severity: 'high' });
+            }
+
+            // Average consistency for this module
+            totalConsistency += (examResult.consistency + tdResult.consistency) / 2;
+            moduleCount++;
         }
-        if (tdFluc.length > 0) {
-            flags.push({ module, type: 'td', fluctuations: tdFluc, severity: 'high' });
-        }
-
-        // Average consistency for this module
-        totalConsistency += (examResult.consistency + tdResult.consistency) / 2;
-        moduleCount++;
     }
 
     const consistency = moduleCount > 0 ? Math.round(totalConsistency / moduleCount) : 0;
 
     console.log(`[TEMPORAL] Aggregated ${Object.keys(finalGrades).length} modules from ${frameResults.length} frames`);
-    console.log(`[TEMPORAL] Consistency: ${consistency}%, Flags: ${flags.length}`);
+    console.log(`[TEMPORAL] Consistency: ${consistency}%, Flags: ${flags.length}, Status: ${passed ? 'VERIFIED' : 'REJECTED'}`);
 
     return {
         finalGrades,
         consistency,
         flags,
-        framesAnalyzed: frameResults.length
+        framesAnalyzed: frameResults.length,
+        verificationStatus: {
+            passed,
+            reason: failReason,
+            flags: validationFlags,
+            pageCounts: {
+                exam: pageTypesDetected.exam.length,
+                assessment: pageTypesDetected.assessment.length
+            }
+        }
     };
 }
 
@@ -172,7 +235,8 @@ export function crossCheckWithPortal(extractedGrades, portalGrades) {
 
     // Check each extracted module against portal data
     for (const [module, data] of Object.entries(extractedGrades)) {
-        const portal = portalLookup[module];
+        const dbSubjectName = MODULE_NAME_MAP[module] || module;
+        const portal = portalLookup[dbSubjectName];
 
         if (!portal) {
             missing.push({ module, status: 'not_in_portal', extracted: data });

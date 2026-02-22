@@ -136,6 +136,27 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
         await updateStatus('AGGREGATING_RESULTS');
         const temporal = aggregateTemporalResults(frameResults);
 
+        // Rule 4, 5, 6 checking
+        if (!temporal.verificationStatus.passed) {
+            console.warn(`[VIDEO-VERIFY] Rejecting job ${jobId}: ${temporal.verificationStatus.reason}`);
+
+            await supabase
+                .from('grade_verifications')
+                .update({
+                    status: 'REJECTED',
+                    current_step: 'COMPLETED',
+                    message: `Échec de validation: ${temporal.verificationStatus.reason}`,
+                    issues: [temporal.verificationStatus.reason],
+                    score_breakdown: {
+                        verification_flags: temporal.verificationStatus.flags,
+                        page_counts: temporal.verificationStatus.pageCounts
+                    }
+                })
+                .eq('id', jobId);
+
+            return; // Stop processing
+        }
+
         // STEP 4: CREDIBILITY CHECK — Compare OCR vs User Grades
         await updateStatus('COMPARING_GRADES');
         const { data: portalGrades } = await supabase
@@ -204,7 +225,11 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
                 frames_analyzed: frames.length,
                 issues: scoreResult.issues,
                 processing_time: processingTime,
-                score_breakdown: scoreResult.breakdown,
+                score_breakdown: {
+                    ...scoreResult.breakdown,
+                    verification_flags: temporal.verificationStatus.flags,
+                    page_counts: temporal.verificationStatus.pageCounts
+                },
                 message: message
             })
             .eq('id', jobId);

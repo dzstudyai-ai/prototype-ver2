@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Shield, Clock, Upload, CheckCircle2, XCircle, AlertTriangle, RefreshCcw, X, Loader2, Video, FileImage } from 'lucide-react';
 import api from '../api';
+import { useTranslation } from 'react-i18next';
 
 const VIDEO_STEPS = [
     { id: 'UPLOADED', label: 'Vidéo reçue' },
@@ -22,6 +23,7 @@ const SCREENSHOT_STEPS = [
 ];
 
 const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
+    const { t } = useTranslation();
     const [mode, setMode] = useState('video'); // 'video' or 'screenshot'
     const [phase, setPhase] = useState('idle');
     const [code, setCode] = useState(null);
@@ -202,8 +204,8 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                             <Shield className="text-white" size={20} />
                         </div>
                         <div>
-                            <h2 className="text-white font-black text-lg">Vérification des Notes</h2>
-                            <p className="text-gray-500 text-[0.6rem] font-bold uppercase tracking-widest">Système Anti-Triche</p>
+                            <h2 className="text-white font-black text-lg">{t('gradeVerification')}</h2>
+                            <p className="text-gray-500 text-[0.6rem] font-bold uppercase tracking-widest">{t('antiCheatSystem')}</p>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded-full transition-colors">
@@ -242,8 +244,8 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                     <FileImage size={24} />
                                 </div>
                                 <div className="text-left">
-                                    <p className="text-white font-bold">Captures d'écran</p>
-                                    <p className="text-gray-500 text-xs">Deux images (Notes TD + Examens)</p>
+                                    <p className="text-white font-bold">{t('screenshotsLabel')}</p>
+                                    <p className="text-gray-500 text-xs">{t('twoImages')}</p>
                                 </div>
                             </button>
                         </div>
@@ -253,10 +255,10 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                     {phase === 'code' && (
                         <div className="space-y-6">
                             <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-2xl p-6 text-center">
-                                <p className="text-indigo-400 text-xs font-black uppercase tracking-widest mb-2">Code de Vérification</p>
+                                <p className="text-indigo-400 text-xs font-black uppercase tracking-widest mb-2">{t('verificationCode')}</p>
                                 <div className="text-4xl font-mono font-black text-white tracking-widest mb-4">{code}</div>
                                 <div className="flex items-center justify-center gap-2 text-gray-400 text-sm font-bold">
-                                    <Clock size={16} /> Expire dans {timeLeft}s
+                                    <Clock size={16} /> {t('expiresIn')} {timeLeft}s
                                 </div>
                                 <div className="mt-4 w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
                                     <div className="h-full bg-indigo-600 transition-all duration-1000" style={{ width: `${(timeLeft / 300) * 100}%` }} />
@@ -275,13 +277,13 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                         ) : (
                                             <div className="space-y-2">
                                                 <Video className="mx-auto text-gray-600" size={32} />
-                                                <p className="text-gray-400 font-bold">Cliquez pour choisir la vidéo</p>
-                                                <p className="text-gray-600 text-xs">Durée recommandée : 10 sec</p>
+                                                <p className="text-gray-400 font-bold">{t('clickToChooseVideo')}</p>
+                                                <p className="text-gray-600 text-xs">{t('recommendedDuration')}</p>
                                             </div>
                                         )}
                                     </div>
                                     <button onClick={submitVideo} disabled={!videoFile} className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-xl transition-all shadow-lg shadow-indigo-600/20">
-                                        LANCER L'ANALYSE VIDÉO
+                                        {t('launchVideoAnalysis')}
                                     </button>
                                 </div>
                             ) : (
@@ -290,20 +292,20 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                         <div onClick={() => tdInputRef.current.click()} className={`cursor-pointer border-2 border-dashed rounded-xl p-6 text-center transition-all ${tdScreenshot ? 'border-green-500 bg-green-500/5' : 'border-gray-800 hover:border-purple-500'}`}>
                                             <input ref={tdInputRef} type="file" accept="image/*" className="hidden" onChange={e => setTdScreenshot(e.target.files[0])} />
                                             <FileImage className={`mx-auto mb-2 ${tdScreenshot ? 'text-green-400' : 'text-gray-600'}`} size={24} />
-                                            <p className="text-xs font-bold text-gray-400">{tdScreenshot ? 'TD Reçu' : 'Screenshot TD'}</p>
+                                            <p className="text-xs font-bold text-gray-400">{tdScreenshot ? t('tdReceived') : t('screenshotTD')}</p>
                                         </div>
                                         <div onClick={() => examInputRef.current.click()} className={`cursor-pointer border-2 border-dashed rounded-xl p-6 text-center transition-all ${examScreenshot ? 'border-green-500 bg-green-500/5' : 'border-gray-800 hover:border-purple-500'}`}>
                                             <input ref={examInputRef} type="file" accept="image/*" className="hidden" onChange={e => setExamScreenshot(e.target.files[0])} />
                                             <FileImage className={`mx-auto mb-2 ${examScreenshot ? 'text-green-400' : 'text-gray-600'}`} size={24} />
-                                            <p className="text-xs font-bold text-gray-400">{examScreenshot ? 'Exam Reçu' : 'Screenshot Exam'}</p>
+                                            <p className="text-xs font-bold text-gray-400">{examScreenshot ? t('examReceived') : t('screenshotExam')}</p>
                                         </div>
                                     </div>
                                     <button onClick={submitScreenshots} disabled={!tdScreenshot || !examScreenshot} className="w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-xl transition-all shadow-lg shadow-purple-600/20">
-                                        VÉRIFIER LES CAPTURES
+                                        {t('verifyScreenshots')}
                                     </button>
                                 </div>
                             )}
-                            <button onClick={reset} className="w-full text-gray-500 text-xs font-bold py-2 hover:text-white transition-colors">Retour aux options</button>
+                            <button onClick={reset} className="w-full text-gray-500 text-xs font-bold py-2 hover:text-white transition-colors">{t('backToOptions')}</button>
                         </div>
                     )}
 
@@ -312,8 +314,8 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                         <div className="py-8 text-center space-y-8">
                             <div>
                                 <Loader2 className="mx-auto text-indigo-400 animate-spin mb-4" size={48} />
-                                <h3 className="text-white text-xl font-black">Traitement en cours...</h3>
-                                <p className="text-gray-500 text-sm">Le serveur analyse vos données (ne fermez pas cette page)</p>
+                                <h3 className="text-white text-xl font-black">{t('processingInProgress')}</h3>
+                                <p className="text-gray-500 text-sm">{t('serverAnalyzing')}</p>
                             </div>
 
                             <div className="max-w-xs mx-auto space-y-3">
@@ -349,24 +351,24 @@ const GradeVerification = ({ isOpen, onClose, onCodeGenerated }) => {
                                     {result.status === 'VERIFIED' ? <CheckCircle2 size={40} /> : <XCircle size={40} />}
                                 </div>
                                 <h3 className={`text-2xl font-black mb-2 ${result.status === 'VERIFIED' ? 'text-green-400' : 'text-red-400'}`}>
-                                    {result.status === 'VERIFIED' ? 'CONFIRMÉ' : 'REJETÉ'}
+                                    {result.status === 'VERIFIED' ? t('confirmed') : t('rejected')}
                                 </h3>
-                                <p className="text-gray-300 font-medium">{result.status === 'VERIFIED' ? 'Vos notes ont été certifiées par notre IA.' : 'La vérification a échoué.'}</p>
+                                <p className="text-gray-300 font-medium">{result.status === 'VERIFIED' ? t('gradesCertified') : t('verificationFailed')}</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 text-center">
-                                    <p className="text-gray-500 text-[0.6rem] font-black uppercase tracking-widest mb-1">Score de Confiance</p>
+                                    <p className="text-gray-500 text-[0.6rem] font-black uppercase tracking-widest mb-1">{t('confidenceScore')}</p>
                                     <p className={`text-3xl font-black ${result.trust_score >= 80 ? 'text-green-400' : 'text-amber-400'}`}>{result.trust_score}%</p>
                                 </div>
                                 <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 text-center">
-                                    <p className="text-gray-500 text-[0.6rem] font-black uppercase tracking-widest mb-1">Temps de Traitement</p>
+                                    <p className="text-gray-500 text-[0.6rem] font-black uppercase tracking-widest mb-1">{t('processingTime')}</p>
                                     <p className="text-3xl font-black text-indigo-400">{result.processing_time?.toFixed(1)}s</p>
                                 </div>
                             </div>
 
                             <button onClick={reset} className="w-full py-4 bg-gray-900 hover:bg-gray-800 text-white font-black rounded-xl border border-gray-800 flex items-center justify-center gap-2 transition-all">
-                                <RefreshCcw size={18} /> Recommencer
+                                <RefreshCcw size={18} /> {t('restart')}
                             </button>
                         </div>
                     )}

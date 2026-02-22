@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Shield, Clock, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, X, ChevronDown, ChevronUp, Clock, Copy, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * CodeOverlay — Persistent floating verification code displayed on screen.
  * Visible during screenshots. Responsive for mobile and desktop.
  */
 const CodeOverlay = ({ code, timeLeft, ttl = 300, onClose }) => {
+    const { t } = useTranslation();
     const [minimized, setMinimized] = useState(false);
     const [position, setPosition] = useState({ x: 16, y: 16 });
     const dragRef = useRef(null);
@@ -88,7 +90,7 @@ const CodeOverlay = ({ code, timeLeft, ttl = 300, onClose }) => {
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                         <Shield size={14} className="text-indigo-400" />
-                        <span className="text-gray-400 text-[0.6rem] font-black uppercase tracking-[0.2em]">Code vérification</span>
+                        <span className="text-gray-400 text-[0.6rem] font-black uppercase tracking-[0.2em]">{t('codeVerification')}</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <button onClick={() => setMinimized(true)} className="w-6 h-6 rounded-md bg-gray-800 hover:bg-gray-700 flex items-center justify-center">

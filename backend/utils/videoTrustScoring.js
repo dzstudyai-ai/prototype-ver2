@@ -17,6 +17,18 @@
  */
 
 import { calculateAverages } from './gradeOCRExtractor.js';
+import { MODULE_NAME_MAP } from './gradeComparator.js';
+
+const S3_COEFFICIENTS = {
+    'Analyse 03': 5,
+    'Algèbre 03': 3,
+    'Économie d\'entreprise': 2,
+    'Probabilité et Statistique 01': 4,
+    'Anglais 02': 2,
+    'SFSD': 4,
+    'Architecture 02': 4,
+    'Électronique Fondamentale 02': 4,
+};
 
 /**
  * Calculate video-based trust score
@@ -81,21 +93,26 @@ export function calculateVideoTrustScore({
         // Calculate expected averages from extracted grades
         const extractedForCalc = {};
         for (const [module, data] of Object.entries(extractedGrades)) {
-            extractedForCalc[module] = {
+            const dbName = MODULE_NAME_MAP[module] || module;
+            extractedForCalc[dbName] = {
                 exam: data.exam,
-                td: data.td
+                td: data.td,
+                coefficient: S3_COEFFICIENTS[dbName] || 1,
+                hasTD: data.hasTD ?? true
             };
         }
 
         const calculated = calculateAverages(extractedForCalc);
 
         // Compare with portal averages
-        if (calculated && calculated.moduleAverages) {
+        if (calculated && calculated.modules) {
             const portalForCalc = {};
             for (const [module, data] of Object.entries(portalGrades)) {
                 portalForCalc[module] = {
                     exam: data.exam ?? data.examScore,
-                    td: data.td ?? data.tdScore
+                    td: data.td ?? data.tdScore,
+                    coefficient: S3_COEFFICIENTS[module] || 1,
+                    hasTD: S3_COEFFICIENTS[module] === 2 && module === 'Anglais 02' ? false : true // Logic for hasTD
                 };
             }
             const portalCalc = calculateAverages(portalForCalc);

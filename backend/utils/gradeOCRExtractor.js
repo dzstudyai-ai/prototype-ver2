@@ -88,23 +88,84 @@ function matchModule(ocrText) {
 }
 
 /**
+ * Detect page type based on trigger headers (Rule 3)
+ * @param {string} ocrText 
+ * @returns {string} 'exam' | 'assessment' | 'unknown'
+ */
+export function detectPageType(ocrText) {
+    const textLower = ocrText.toLowerCase();
+
+    // Trigger headers for Exam page (Progrès terminology)
+    const examTriggers = ['relevé de notes', 'examen', 'période'];
+    const hasExamTrigger = examTriggers.some(t => textLower.includes(t));
+
+    // Trigger headers for Assessment (TD/CC) page
+    const assessmentTriggers = ['fiches d\'évaluation', 'contrôle continu', 'badge', 'cm/td'];
+    const hasAssessmentTrigger = assessmentTriggers.some(t => textLower.includes(t));
+
+    if (hasExamTrigger && !hasAssessmentTrigger) return 'exam';
+    if (hasAssessmentTrigger) return 'assessment';
+
+    return 'unknown';
+}
+
+/**
+ * Check for invalid overlapping headers (Rule 8)
+ * e.g. Coef column and CM/TD badges appearing in same table context
+ */
+export function hasOverlapViolation(ocrText) {
+    const textLower = ocrText.toLowerCase();
+    const hasCoef = textLower.includes('coef');
+    const hasBadges = textLower.includes('cc') || textLower.includes('td') || textLower.includes('cm');
+
+    // Rule 8: If Coef and CM/TD badges appear in the same frame/table context, ignore it
+    return hasCoef && hasBadges;
+}
+
+/**
+ * Clean OCR text from common mobile status bar noise (Rule 7)
+ * e.g. 4G, 5G, 100%, battery icons, etc.
+ * @param {string} text 
+ * @returns {string} cleaned text
+ */
+export function cleanStatusBarNoise(text) {
+    // Remove percentages (battery)
+    let cleaned = text.replace(/\b\d{1,3}%\b/g, '');
+
+    // Remove network indicators (4G, 5G, LTE, 3G)
+    cleaned = cleaned.replace(/\b[2-5]G\b/gi, '');
+    cleaned = cleaned.replace(/\bLTE\b/gi, '');
+
+    // Remove common non-grade patterns like "SIM", "WIFI"
+    cleaned = cleaned.replace(/\b(SIM|WIFI|ROAMING)\b/gi, '');
+
+    return cleaned;
+}
+
+/**
  * Extract grades from OCR text
  * @param {string} ocrText - Full OCR text from Tesseract
  * @returns {Object} extraction results
  */
 export function extractGrades(ocrText) {
-    const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    // Rule 7: Clean noise before splitting into lines
+    const cleanedText = cleanStatusBarNoise(ocrText);
+    const lines = cleanedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const extractedGrades = {};
     const issues = [];
     const modulesFound = [];
 
     console.log('[GRADE-OCR] Parsing', lines.length, 'lines');
 
-    // Detect page context (is this more likely an Exam page or a TD page?)
-    let pageContext = 'unknown';
-    const textLower = ocrText.toLowerCase();
-    if (textLower.includes('examen') && !textLower.includes('td')) pageContext = 'exam';
-    if ((textLower.includes('td') || textLower.includes('cc')) && !textLower.includes('examen')) pageContext = 'td';
+    // Rule 3: Detect page context using trigger headers
+    const pageContext = detectPageType(ocrText);
+    console.log('[GRADE-OCR] Detected context:', pageContext);
+
+    // Rule 8: Check for header overlap violations
+    if (hasOverlapViolation(ocrText)) {
+        console.warn('[GRADE-OCR] Overlap violation detected (Rule 8), ignoring frame content');
+        return { grades: {}, modulesFound: [], issues: ['OVERLAP_VIOLATION'], pageContext: 'invalid' };
+    }
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -125,26 +186,30 @@ export function extractGrades(ocrText) {
             if (gradeNumbers) {
                 const parsed = gradeNumbers.map(g => parseFloat(g.replace(',', '.')));
 
-                // Heuristic: If the first number is exactly the coefficient and there are more numbers,
-                // skip the first one as it's likely the coefficient column.
-                let filteredGrades = parsed;
-                if (parsed.length > 1 && parsed[0] === matched.coefficient) {
-                    filteredGrades = parsed.slice(1);
+                // Rule 1 & 2: Filter extraction based on page context
+                let finalCandidates = parsed.filter(g => g >= 0 && g <= 20);
+
+                // Heuristic for Coef column: if 1st number is exactly the coef, skip it
+                if (finalCandidates.length > 1 && finalCandidates[0] === matched.coefficient) {
+                    finalCandidates = finalCandidates.slice(1);
                 }
 
-                const finalCandidates = filteredGrades.filter(g => g >= 0 && g <= 20);
-
-                if (finalCandidates.length === 1) {
-                    // One number found: use page context clues
-                    if (pageContext === 'td') {
+                if (pageContext === 'exam') {
+                    // RULE 1: Never extract TD/CM from Exam page
+                    examGrade = finalCandidates[0] ?? null;
+                    tdGrade = null;
+                } else if (pageContext === 'assessment') {
+                    // RULE 2: Never extract Exam grade from Assessment page
+                    tdGrade = finalCandidates[0] ?? null;
+                    examGrade = null;
+                } else {
+                    // Unknown context: Use default heuristic (TD then Exam)
+                    if (finalCandidates.length === 1) {
+                        examGrade = finalCandidates[0];
+                    } else if (finalCandidates.length >= 2) {
                         tdGrade = finalCandidates[0];
-                    } else {
-                        examGrade = finalCandidates[0]; // Default to exam
+                        examGrade = finalCandidates[1];
                     }
-                } else if (finalCandidates.length >= 2) {
-                    // Two numbers: usually TD then Exam in Progrès list
-                    tdGrade = finalCandidates[0];
-                    examGrade = finalCandidates[1];
                 }
             }
 
@@ -155,7 +220,9 @@ export function extractGrades(ocrText) {
                 hasTD: matched.hasTD
             };
 
-            console.log(`[GRADE-OCR] Found: ${matched.name} → exam=${examGrade}, td=${tdGrade} (context=${pageContext})`);
+            if (examGrade !== null || tdGrade !== null) {
+                console.log(`[GRADE-OCR] Found: ${matched.name} → exam=${examGrade}, td=${tdGrade} (context=${pageContext})`);
+            }
         }
     }
 
@@ -163,7 +230,8 @@ export function extractGrades(ocrText) {
         grades: extractedGrades,
         modulesFound,
         issues,
-        lineCount: lines.length
+        lineCount: lines.length,
+        pageContext
     };
 }
 

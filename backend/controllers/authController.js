@@ -134,7 +134,7 @@ export const getUserProfile = async (req, res) => {
     try {
         const { data: user, error } = await supabase
             .from('users')
-            .select('id, student_id, alias, display_mode, is_verified')
+            .select('id, student_id, alias, display_mode, is_verified, student_group')
             .eq('id', req.user.id)
             .single();
 
@@ -146,6 +146,7 @@ export const getUserProfile = async (req, res) => {
             alias: user.alias,
             displayMode: user.display_mode,
             isVerified: user.is_verified || false,
+            studentGroup: user.student_group,
         });
     } catch (error) {
         res.status(500).json({ message: error.message });

@@ -193,7 +193,7 @@ const Register = () => {
 
                         <div className="bg-indigo-50/50 p-[1.25rem] rounded-[1.25rem] border border-indigo-100 mb-[1rem]">
                             <p className="text-[0.625rem] font-bold text-indigo-400 leading-relaxed uppercase tracking-wider">
-                                <span className="text-indigo-600 font-black">Note :</span> {t('privacyNotice').split(': ').slice(1).join(': ')}
+                                <span className="text-indigo-600 font-black">{t('noteLabel')} :</span> {t('privacyNotice').split(': ').slice(1).join(': ')}
                             </p>
                         </div>
 

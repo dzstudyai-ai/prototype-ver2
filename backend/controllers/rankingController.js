@@ -8,8 +8,9 @@ export const getGeneralRanking = async (req, res) => {
             .select(`
         general_average,
         user_id,
-        users!inner(alias, student_id, display_mode)
+        users!inner(alias, student_id, display_mode, is_verified)
       `)
+            .eq('users.is_verified', true)
             .order('general_average', { ascending: false });
 
         if (error) throw error;
@@ -123,9 +124,10 @@ export const getSubjectRanking = async (req, res) => {
         average,
         subject,
         user_id,
-        users!inner(alias, student_id, display_mode)
+        users!inner(alias, student_id, display_mode, is_verified)
       `)
             .eq('subject', subject)
+            .eq('users.is_verified', true)
             .order('average', { ascending: false });
 
         if (error) throw error;
@@ -138,6 +140,46 @@ export const getSubjectRanking = async (req, res) => {
                 : item.users.alias,
             average: item.average,
             subject: item.subject,
+        }));
+
+        res.json(ranking);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Get ranking by group (A1, A2, A3, A4)
+export const getGroupRanking = async (req, res) => {
+    try {
+        const { group } = req.params;
+
+        // Validate group
+        const validGroups = ['A1', 'A2', 'A3', 'A4'];
+        if (!validGroups.includes(group)) {
+            return res.status(400).json({ message: `Groupe invalide: ${group}. Valeurs acceptées: ${validGroups.join(', ')}` });
+        }
+
+        const { data, error } = await supabase
+            .from('averages')
+            .select(`
+                general_average,
+                user_id,
+                users!inner(alias, student_id, display_mode, student_group, is_verified)
+            `)
+            .eq('users.student_group', group)
+            .eq('users.is_verified', true)
+            .order('general_average', { ascending: false });
+
+        if (error) throw error;
+
+        const ranking = data.map((item, index) => ({
+            rank: index + 1,
+            alias: item.users.alias,
+            displayName: item.users.display_mode === 'studentNumber'
+                ? item.users.student_id
+                : item.users.alias,
+            average: item.general_average,
+            group: item.users.student_group,
         }));
 
         res.json(ranking);

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import LoadingSpinner from '../components/LoadingSpinner';
 import GradeVerification from '../components/GradeVerification';
 import CodeOverlay from '../components/CodeOverlay';
+import { Users } from 'lucide-react';
 
 const SUBJECTS = [
     { name: 'Analyse 03', coefficient: 5, hasTD: true },
@@ -38,6 +39,7 @@ const Dashboard = () => {
     const [showVerification, setShowVerification] = useState(false);
     const [overlayCode, setOverlayCode] = useState(null);
     const [overlayTimeLeft, setOverlayTimeLeft] = useState(0);
+    const [studentGroup, setStudentGroup] = useState(null);
 
     // Countdown for overlay
     useEffect(() => {
@@ -241,6 +243,12 @@ const Dashboard = () => {
 
     useEffect(() => {
         fetchGrades();
+        // Fetch user group
+        if (user) {
+            api.get('/api/auth/me').then(({ data }) => {
+                if (data.studentGroup) setStudentGroup(data.studentGroup);
+            }).catch(() => { });
+        }
     }, [user]);
 
     const isMounted = useRef(true);
@@ -499,7 +507,7 @@ const Dashboard = () => {
                                 className="col-span-1 px-[0.75rem] sm:px-[1.5rem] py-[0.875rem] sm:py-[1.125rem] rounded-[1rem] sm:rounded-[1.25rem] font-black text-[0.6rem] sm:text-[0.75rem] uppercase tracking-wider sm:tracking-widest flex items-center justify-center gap-[0.5rem] transition-all touch-feedback shadow-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.97]"
                             >
                                 <Shield size={16} />
-                                Vérifier
+                                {t('verifyButton')}
                             </button>
                         )}
                         <button
@@ -551,6 +559,23 @@ const Dashboard = () => {
                     </div>
                 </div>
 
+                {/* Group Badge */}
+                {studentGroup && (
+                    <div className="mb-[2rem] bg-white p-[1.25rem] sm:p-[1.5rem] rounded-[1.5rem] shadow-lg border border-gray-100">
+                        <div className="flex items-center gap-[1rem]">
+                            <div className="w-[3rem] h-[3rem] rounded-[1rem] flex items-center justify-center flex-shrink-0 bg-violet-100 text-violet-600">
+                                <Users size={22} />
+                            </div>
+                            <div>
+                                <h3 className="text-[1rem] font-black text-gray-950 tracking-tight">{t('studentGroup')}</h3>
+                                <p className="text-violet-600 font-black text-[0.875rem] uppercase tracking-[0.15em]">
+                                    {studentGroup}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Desktop Table View (lg+) */}
                 <div className="hidden lg:block bg-white shadow-2xl rounded-[2.5rem] overflow-hidden border border-gray-100">
                     <table className="w-full text-left">
@@ -596,7 +621,7 @@ const Dashboard = () => {
                                                 </div>
                                             )}
                                             {isExamVerified === false && (
-                                                <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title="Note non vérifiée">
+                                                <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title={t('unverifiedGrade')}>
                                                     <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
                                                         <span className="font-bold text-[10px]">!</span>
                                                     </div>
@@ -621,7 +646,7 @@ const Dashboard = () => {
                                                         </div>
                                                     )}
                                                     {isTdVerified === false && (
-                                                        <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title="Note non vérifiée">
+                                                        <div className="absolute top-1/2 right-4 -translate-y-1/2 text-amber-500 pointer-events-none" title={t('unverifiedGrade')}>
                                                             <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border border-amber-300 shadow-sm">
                                                                 <span className="font-bold text-[10px]">!</span>
                                                             </div>
