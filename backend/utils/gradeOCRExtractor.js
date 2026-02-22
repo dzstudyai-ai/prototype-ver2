@@ -88,25 +88,98 @@ function matchModule(ocrText) {
 }
 
 /**
- * Detect page type based on trigger headers (Rule 3)
+ * Detect page fingerprint for strict isolation (Problem 2)
  * @param {string} ocrText 
- * @returns {string} 'exam' | 'assessment' | 'unknown'
+ * @returns {Object} { type: 'exam'|'assessment'|'unknown', confidence: number }
  */
-export function detectPageType(ocrText) {
+export function validatePageFingerprint(ocrText) {
     const textLower = ocrText.toLowerCase();
 
-    // Trigger headers for Exam page (Progrès terminology)
-    const examTriggers = ['relevé de notes', 'examen', 'période'];
-    const hasExamTrigger = examTriggers.some(t => textLower.includes(t));
+    // Fingerprints for Exam page (Progrès terminology)
+    const examKeywords = ['relevé de notes', 'examen', 'session normale', 'session', 'moyenne'];
+    // Fingerprints for Assessment (TD/CC) page
+    const assessmentKeywords = ['fiches d\'évaluation', 'contrôle continu', 'badge', 'cc/td', 'cm/td'];
 
-    // Trigger headers for Assessment (TD/CC) page
-    const assessmentTriggers = ['fiches d\'évaluation', 'contrôle continu', 'badge', 'cm/td'];
-    const hasAssessmentTrigger = assessmentTriggers.some(t => textLower.includes(t));
+    const examScore = examKeywords.filter(k => textLower.includes(k)).length;
+    const assessmentScore = assessmentKeywords.filter(k => textLower.includes(k)).length;
 
-    if (hasExamTrigger && !hasAssessmentTrigger) return 'exam';
-    if (hasAssessmentTrigger) return 'assessment';
+    if (examScore >= 2 && assessmentScore === 0) return { type: 'exam', confidence: examScore / examKeywords.length };
+    if (assessmentScore >= 1) return { type: 'assessment', confidence: assessmentScore / assessmentKeywords.length };
 
-    return 'unknown';
+    return { type: 'unknown', confidence: 0 };
+}
+
+/**
+ * Normalizes layout data from different OCR engines into a unified world-space
+ * @param {Object} layoutData { words, overlay }
+ * @returns {Array} List of { text, x, y, w, h }
+ */
+function normalizeLayout(layoutData) {
+    if (!layoutData) return [];
+
+    let normalized = [];
+
+    // From Tesseract
+    if (layoutData.words) {
+        normalized = layoutData.words.map(w => ({
+            text: w.text,
+            x: w.bbox.x0,
+            y: w.bbox.y0,
+            w: (w.bbox.x1 - w.bbox.x0),
+            h: (w.bbox.y1 - w.bbox.y0)
+        }));
+    }
+
+    // From OCR.space (Overlay)
+    if (layoutData.overlay && layoutData.overlay.Lines) {
+        for (const line of layoutData.overlay.Lines) {
+            for (const word of line.Words) {
+                normalized.push({
+                    text: word.WordText,
+                    x: word.Left,
+                    y: word.Top,
+                    w: word.Width,
+                    h: word.Height
+                });
+            }
+        }
+    }
+
+    return normalized.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/**
+ * Group words into lines based on Y-coordinate proximity
+ */
+function groupIntoRows(words, yThreshold = 20) {
+    if (words.length === 0) return [];
+
+    const rows = [];
+    let currentRow = [words[0]];
+
+    for (let i = 1; i < words.length; i++) {
+        const word = words[i];
+        const lastWord = currentRow[currentRow.length - 1];
+
+        // If Y is close enough to previous word, same line
+        if (Math.abs(word.y - lastWord.y) < yThreshold) {
+            currentRow.push(word);
+        } else {
+            rows.push(currentRow.sort((a, b) => a.x - b.x));
+            currentRow = [word];
+        }
+    }
+    rows.push(currentRow.sort((a, b) => a.x - b.x));
+
+    return rows;
+}
+
+/**
+ * Detect page type based on trigger headers (Rule 3)
+ */
+export function detectPageType(ocrText) {
+    const fingerprint = validatePageFingerprint(ocrText);
+    return fingerprint.type;
 }
 
 /**
@@ -143,23 +216,16 @@ export function cleanStatusBarNoise(text) {
 }
 
 /**
- * Extract grades from OCR text
- * @param {string} ocrText - Full OCR text from Tesseract
+ * Extract grades from OCR text using structural layout data (Problem 1)
+ * @param {string} ocrText - Full OCR text
+ * @param {Object} layoutData - { words: [], overlay: {} }
  * @returns {Object} extraction results
  */
-export function extractGrades(ocrText) {
-    // Rule 7: Clean noise before splitting into lines
-    const cleanedText = cleanStatusBarNoise(ocrText);
-    const lines = cleanedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const extractedGrades = {};
-    const issues = [];
-    const modulesFound = [];
+export function extractGrades(ocrText, layoutData = null) {
+    const fingerprint = validatePageFingerprint(ocrText);
+    const pageContext = fingerprint.type;
 
-    console.log('[GRADE-OCR] Parsing', lines.length, 'lines');
-
-    // Rule 3: Detect page context using trigger headers
-    const pageContext = detectPageType(ocrText);
-    console.log('[GRADE-OCR] Detected context:', pageContext);
+    console.log(`[GRADE-OCR] Structural analysis. Context: ${pageContext} (Conf: ${fingerprint.confidence})`);
 
     // Rule 8: Check for header overlap violations
     if (hasOverlapViolation(ocrText)) {
@@ -167,49 +233,59 @@ export function extractGrades(ocrText) {
         return { grades: {}, modulesFound: [], issues: ['OVERLAP_VIOLATION'], pageContext: 'invalid' };
     }
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const matched = matchModule(line);
+    const words = normalizeLayout(layoutData);
+
+    // Fallback to text-based if no layout data
+    if (words.length === 0) {
+        console.warn('[GRADE-OCR] No layout data available, falling back to regex extraction');
+        return legacyExtractGrades(ocrText, pageContext);
+    }
+
+    const rows = groupIntoRows(words);
+    const extractedGrades = {};
+    const modulesFound = [];
+
+    // Identify Column Boundaries by looking for headers
+    let headerRow = rows.find(row => row.some(w => w.text.toLowerCase().includes('coef')));
+    let colBoundaries = { name: 0, coef: 0, grade: 0 };
+
+    if (headerRow) {
+        const coefWord = headerRow.find(w => w.text.toLowerCase().includes('coef'));
+        if (coefWord) colBoundaries.coef = coefWord.x;
+        const gradeWord = headerRow.find(w => w.text.toLowerCase().match(/note|garde|exam/i));
+        if (gradeWord) colBoundaries.grade = gradeWord.x;
+    }
+
+    for (const row of rows) {
+        const rowText = row.map(w => w.text).join(' ');
+        const matched = matchModule(rowText);
 
         if (matched) {
             modulesFound.push(matched.name);
 
-            // Look for grades in the same line and next lines
-            const gradeContext = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
-
-            // Match integers or decimals
-            const gradeNumbers = gradeContext.match(/\b(\d{1,2}[.,]\d{1,2})\b|\b(\d{1,2})\b/g);
-
             let examGrade = null;
             let tdGrade = null;
 
-            if (gradeNumbers) {
-                const parsed = gradeNumbers.map(g => parseFloat(g.replace(',', '.')));
+            // Filter words by column boundaries
+            const numbers = row.filter(w => w.text.match(/^\d{1,2}[.,]\d{1,2}$|^\d{1,2}$/));
 
-                // Rule 1 & 2: Filter extraction based on page context
-                let finalCandidates = parsed.filter(g => g >= 0 && g <= 20);
+            for (const numWord of numbers) {
+                const val = parseFloat(numWord.text.replace(',', '.'));
 
-                // Heuristic for Coef column: if 1st number is exactly the coef, skip it
-                if (finalCandidates.length > 1 && finalCandidates[0] === matched.coefficient) {
-                    finalCandidates = finalCandidates.slice(1);
-                }
+                // Range Check: Grade must be 0-20
+                if (val < 0 || val > 20) continue;
 
                 if (pageContext === 'exam') {
-                    // RULE 1: Never extract TD/CM from Exam page
-                    examGrade = finalCandidates[0] ?? null;
-                    tdGrade = null;
-                } else if (pageContext === 'assessment') {
-                    // RULE 2: Never extract Exam grade from Assessment page
-                    tdGrade = finalCandidates[0] ?? null;
-                    examGrade = null;
-                } else {
-                    // Unknown context: Use default heuristic (TD then Exam)
-                    if (finalCandidates.length === 1) {
-                        examGrade = finalCandidates[0];
-                    } else if (finalCandidates.length >= 2) {
-                        tdGrade = finalCandidates[0];
-                        examGrade = finalCandidates[1];
+                    // Check if x is near Coef vs Grade
+                    const distToCoef = Math.abs(numWord.x - colBoundaries.coef);
+                    const distToGrade = Math.abs(numWord.x - colBoundaries.grade);
+
+                    if (distToCoef < distToGrade && val === matched.coefficient) {
+                        continue; // This is the Coef column
                     }
+                    examGrade = val; // Accept
+                } else if (pageContext === 'assessment') {
+                    tdGrade = val;
                 }
             }
 
@@ -219,20 +295,59 @@ export function extractGrades(ocrText) {
                 coefficient: matched.coefficient,
                 hasTD: matched.hasTD
             };
-
-            if (examGrade !== null || tdGrade !== null) {
-                console.log(`[GRADE-OCR] Found: ${matched.name} → exam=${examGrade}, td=${tdGrade} (context=${pageContext})`);
-            }
         }
     }
 
     return {
         grades: extractedGrades,
         modulesFound,
-        issues,
-        lineCount: lines.length,
-        pageContext
+        issues: [],
+        pageContext,
+        method: 'structural'
     };
+}
+
+/**
+ * Text-based fallback for extraction
+ */
+function legacyExtractGrades(ocrText, pageContext) {
+    const cleanedText = cleanStatusBarNoise(ocrText);
+    const lines = cleanedText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const extractedGrades = {};
+
+    for (let i = 0; i < lines.length; i++) {
+        const rowText = lines[i];
+        const matched = matchModule(rowText);
+
+        if (matched) {
+            const gradeContext = [rowText, lines[i + 1] || ''].join(' ');
+            const gradeNumbers = gradeContext.match(/\b(\d{1,2}[.,]\d{1,2})\b|\b(\d{1,2})\b/g);
+
+            if (gradeNumbers) {
+                const parsed = gradeNumbers.map(g => parseFloat(g.replace(',', '.'))).filter(v => v >= 0 && v <= 20);
+
+                let exam = null;
+                let td = null;
+
+                if (pageContext === 'exam') {
+                    let candidates = parsed;
+                    if (candidates.length > 1 && candidates[0] === matched.coefficient) candidates = candidates.slice(1);
+                    exam = candidates[0] ?? null;
+                } else if (pageContext === 'assessment') {
+                    td = parsed[0] ?? null;
+                }
+
+                extractedGrades[matched.name] = {
+                    exam,
+                    td,
+                    coefficient: matched.coefficient,
+                    hasTD: matched.hasTD
+                };
+            }
+        }
+    }
+
+    return { grades: extractedGrades, modulesFound: Object.keys(extractedGrades), issues: [], pageContext, method: 'legacy' };
 }
 
 /**

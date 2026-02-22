@@ -47,16 +47,15 @@ function getNextKey() {
  * Run Tesseract OCR on an image buffer
  * @param {Buffer} imageBuffer
  * @param {Object} [existingWorker] - Optional pre-warmed worker
- * @returns {Promise<{text: string, confidence: number, engine: string}>}
+ * @returns {Promise<{text: string, confidence: number, engine: string, words: Array}>}
  */
 export async function runTesseract(imageBuffer, existingWorker = null) {
     let worker = existingWorker;
     let autoTerminate = false;
 
     try {
-        // Preprocess for better OCR
         const processed = await sharp(imageBuffer)
-            .resize(1200, null, { withoutEnlargement: true }) // Downscale slightly for speed
+            .resize(1200, null, { withoutEnlargement: true })
             .grayscale()
             .normalize()
             .toBuffer();
@@ -68,19 +67,23 @@ export async function runTesseract(imageBuffer, existingWorker = null) {
 
         const { data } = await worker.recognize(processed);
 
-        if (autoTerminate) {
-            await worker.terminate();
-        }
+        if (autoTerminate) await worker.terminate();
 
         return {
             text: data.text,
             confidence: data.confidence,
-            engine: 'tesseract'
+            engine: 'tesseract',
+            // Return layout data for structural analysis
+            words: data.words?.map(w => ({
+                text: w.text,
+                confidence: w.confidence,
+                bbox: w.bbox // { x0, y0, x1, y1 }
+            })) || []
         };
     } catch (err) {
         console.error('[OCR-TESSERACT] Error:', err.message);
         if (autoTerminate && worker) await worker.terminate().catch(() => { });
-        return { text: '', confidence: 0, engine: 'tesseract' };
+        return { text: '', confidence: 0, engine: 'tesseract', words: [] };
     }
 }
 
@@ -90,17 +93,13 @@ export async function runTesseract(imageBuffer, existingWorker = null) {
 /**
  * Run OCR.space API on an image buffer
  * @param {Buffer} imageBuffer
- * @returns {Promise<{text: string, confidence: number, engine: string}>}
+ * @returns {Promise<{text: string, confidence: number, engine: string, overlay: Object}>}
  */
 export async function runOCRSpace(imageBuffer) {
     const apiKey = getNextKey();
-    if (!apiKey) {
-        console.warn('[OCR-SPACE] No API keys configured, skipping');
-        return { text: '', confidence: 0, engine: 'ocrspace' };
-    }
+    if (!apiKey) return { text: '', confidence: 0, engine: 'ocrspace', overlay: null };
 
     try {
-        // Convert to base64 for API
         const base64 = imageBuffer.toString('base64');
         const dataUri = `data:image/jpeg;base64,${base64}`;
 
@@ -113,10 +112,10 @@ export async function runOCRSpace(imageBuffer) {
             body: new URLSearchParams({
                 base64Image: dataUri,
                 language: 'fre',
-                isOverlayRequired: 'false',
+                isOverlayRequired: 'true', // REQUIRED for structural parsing
                 detectOrientation: 'true',
                 scale: 'true',
-                OCREngine: '2' // Engine 2 is better for handwriting/screenshots
+                OCREngine: '2'
             })
         });
 
@@ -126,16 +125,17 @@ export async function runOCRSpace(imageBuffer) {
             const parsed = result.ParsedResults[0];
             return {
                 text: parsed.ParsedText || '',
-                confidence: parsed.TextOverlay?.HasOverlay ? 80 : 60,
-                engine: 'ocrspace'
+                confidence: parsed.TextOverlay?.HasOverlay ? 85 : 60,
+                engine: 'ocrspace',
+                overlay: parsed.TextOverlay // Contains Lines with Words and coordinates
             };
         }
 
-        return { text: '', confidence: 0, engine: 'ocrspace' };
+        return { text: '', confidence: 0, engine: 'ocrspace', overlay: null };
 
     } catch (err) {
         console.error('[OCR-SPACE] Error:', err.message);
-        return { text: '', confidence: 0, engine: 'ocrspace' };
+        return { text: '', confidence: 0, engine: 'ocrspace', overlay: null };
     }
 }
 
@@ -157,11 +157,14 @@ export async function runAllOCR(imageBuffer, worker = null) {
 
     const results = [tesseractResult, ocrSpaceResult].filter(r => r.text.length > 0);
 
-    // Extract grades from each engine's text
+    // Extract grades from each engine's text (now passing structural data)
     const gradeExtractions = results.map(r => ({
         engine: r.engine,
         confidence: r.confidence,
-        grades: extractGrades(r.text),
+        grades: extractGrades(r.text, {
+            words: r.words,   // Tesseract layout
+            overlay: r.overlay // OCR.space layout
+        }),
         text: r.text
     }));
 

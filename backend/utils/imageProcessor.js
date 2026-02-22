@@ -228,15 +228,39 @@ function extractEXIF(metadata) {
 }
 
 /**
- * Preprocess image for optimal OCR
+ * Preprocess image for optimal OCR (Rule 1 of Performance Architecture)
+ * - Resize to max 1200px
+ * - Convert to grayscale
+ * - Increase contrast & normalization
+ * - Crop text region (ID area)
  */
 export async function preprocessForOCR(buffer) {
+    const metadata = await sharp(buffer).metadata();
+    const w = metadata.width || 1200;
+    const h = metadata.height || 800;
+
+    const cropWidth = Math.floor(w * 0.8);
+    const cropHeight = Math.floor(h * 0.8);
+    const cropLeft = Math.floor(w * 0.1);
+    const cropTop = Math.floor(h * 0.1);
+
+    // Ensure we don't extract out of bounds
+    const safeW = Math.min(cropWidth, w - cropLeft);
+    const safeH = Math.min(cropHeight, h - cropTop);
+
     return sharp(buffer)
-        .resize(1800) // Slightly larger for better detail
+        .resize(1200, null, { withoutEnlargement: true }) // Problem 3: Max width 1200px
         .grayscale()
-        .modulate({ brightness: 1.1, contrast: 1.2 }) // Boost visibility
+        .modulate({ brightness: 1.05, contrast: 1.3 }) // Problem 3: Increase contrast
         .normalize()
-        .sharpen({ sigma: 1.5, m1: 2, m2: 4 })
+        .sharpen()
+        // Rule: Crop only text region (ID area)
+        .extract({
+            left: cropLeft,
+            top: cropTop,
+            width: safeW,
+            height: safeH
+        })
         .toBuffer();
 }
 

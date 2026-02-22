@@ -111,7 +111,8 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
         let codeFound = false;
 
         for (let i = 0; i < frames.length; i++) {
-            const result = await runAllOCR(frames[i].buffer, worker);
+            const frame = frames[i];
+            const result = await runAllOCR(frame.buffer, worker);
 
             // Check for code in any frame
             if (!codeFound && verificationCode) {
@@ -120,12 +121,19 @@ async function processVideoJob(jobId, videoBuffer, userId, verificationCode) {
             }
 
             frameResults.push({
-                frameIndex: i,
-                timestamp: i, // Approximation if timestamps not available from extractor
+                frameIndex: frame.index,
+                timestamp: frame.timestamp,
                 results: result.results,
                 gradeExtractions: result.gradeExtractions,
                 consensus: buildFrameConsensus(result.gradeExtractions)
             });
+
+            // PERFORMANCE OPTIMIZATION: Early Stop (Rule 2)
+            const detectedContexts = frameResults.map(fr => fr.gradeExtractions?.[0]?.grades?.pageContext);
+            if (detectedContexts.includes('exam') && detectedContexts.includes('assessment')) {
+                console.log(`[VIDEO-VERIFY] Early stop at frame ${i}: Both pages identified`);
+                break;
+            }
 
             if (i % 2 === 0) {
                 await updateStatus(`OCR_ANALYSIS_${i + 1}/${frames.length}`);

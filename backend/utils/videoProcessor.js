@@ -46,8 +46,8 @@ export async function extractFrames(videoBuffer, { fps = 1, maxFrames = 10 } = {
         if (duration < 3) {
             throw new Error('Vidéo trop courte (minimum 3 secondes)');
         }
-        if (duration > 60) {
-            throw new Error('Vidéo trop longue (maximum 60 secondes)');
+        if (duration > 90) { // Problem 3: Increased duration limit
+            throw new Error('Vidéo trop longue (maximum 90 secondes)');
         }
 
         // Extract frames using ffmpeg with resolution cap (max 1200 width)
